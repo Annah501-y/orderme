@@ -1,0 +1,7 @@
+$kind: collection
+name: OrderMe API
+variables:
+  - key: base_url
+    value: 'http://localhost/orderme/public'
+  - key: token
+    value: ''

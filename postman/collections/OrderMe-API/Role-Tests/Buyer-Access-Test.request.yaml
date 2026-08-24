@@ -1,0 +1,10 @@
+$kind: http-request
+name: Buyer Access Test
+method: GET
+url: '{{base_url}}/api/test/buyer'
+order: 1000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{token}}'
