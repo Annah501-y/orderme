@@ -32,7 +32,7 @@ class ApprovedSellerMiddleware
         if ($sellerProfile->status !== SellerStatus::APPROVED) {
             return response()->json([
                 'success' => false,
-                'message' => 'Your seller account has not been approved.',
+                'message' => 'Your  account has not been approved.',
             ], 403);
         }
 

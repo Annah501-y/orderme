@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\LoginRequest;
 use App\Http\Requests\RegisterRequest;
 use App\Models\User;
+use App\Enums\UserRole;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Hash;
 
@@ -13,23 +14,32 @@ use Illuminate\Support\Facades\Hash;
 
 class AuthController extends Controller
 {
-    public function Register(RegisterRequest $request): JsonResponse
+    public function register(RegisterRequest $request): JsonResponse
     {
-        $user = user::create([
+        $role = match ($request->account_type) {
+            'buyer' => UserRole::BUYER,
+            'seller' => UserRole::SELLER,
+        };
+    
+        $user = User::create([
             'name' => $request->name,
             'email' => $request->email,
             'password' => $request->password,
+            'role' => $role,
         ]);
+    
         $token = $user->createToken('orderme-app')->plainTextToken;
+    
         return response()->json([
-            'success' => 'true',
-            'message' => 'Account Created Successfully.',
+            'success' => true,
+            'message' => 'Account created successfully.',
             'data' => [
                 'user' => $user,
                 'token' => $token,
             ],
         ], 201);
     }
+    
     public function Login(LoginRequest $request): JsonResponse
     {
         $user = user::where('email', $request->email)->first();
@@ -38,7 +48,7 @@ class AuthController extends Controller
         }
         $token = $user->createToken('orderme-app')->plainTextToken;
         return response()->json([
-            'success' => 'true',
+            'success' => true,
             'message' => 'Login Successful.',
             'data' => [
                 'user' => $user,
