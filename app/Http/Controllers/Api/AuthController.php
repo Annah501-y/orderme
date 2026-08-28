@@ -6,66 +6,118 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\LoginRequest;
 use App\Http\Requests\RegisterRequest;
 use App\Models\User;
-use App\Enums\UserRole;
+use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Hash;
-
-
+use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
+    /**
+     * Register a new buyer or seller account.
+     */
     public function register(RegisterRequest $request): JsonResponse
     {
-        $role = match ($request->account_type) {
-            'buyer' => UserRole::BUYER,
-            'seller' => UserRole::SELLER,
-        };
-    
         $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => $request->password,
-            'role' => $role,
+            'name' => $request->validated('name'),
+            'email' => $request->validated('email'),
+            'phone' => $request->validated('phone'),
+            'password' => $request->validated('password'),
         ]);
-    
-        $token = $user->createToken('orderme-app')->plainTextToken;
-    
-        return response()->json([
-            'success' => true,
-            'message' => 'Account created successfully.',
-            'data' => [
-                'user' => $user,
+
+        $user->assignRole($request->validated('account_type'));
+
+        $token = $user
+            ->createToken('orderme-app')
+            ->plainTextToken;
+
+        return ApiResponse::success(
+            message: 'Your OrderMe account has been created successfully.',
+            data: [
+                'user' => $user->load('roles'),
                 'token' => $token,
+                'token_type' => 'Bearer',
             ],
-        ], 201);
+            status: 201
+        );
     }
-    
-    public function Login(LoginRequest $request): JsonResponse
+
+    /**
+     * Authenticate an existing user.
+     */
+    public function login(LoginRequest $request): JsonResponse
     {
-        $user = user::where('email', $request->email)->first();
-        if (!$user || !Hash::check($request->password, $user->password)) {
-            return response()->json(['success' => 'false', 'message' => 'Invalid emailor password'], 401);
+        $user = User::where('email', $request->validated('email'))
+            ->first();
+
+        if (
+            !$user ||
+            !Hash::check(
+                $request->validated('password'),
+                $user->password
+            )
+        ) {
+            throw ValidationException::withMessages([
+                'email' => [
+                    'The email address or password is incorrect.',
+                ],
+            ]);
         }
-        $token = $user->createToken('orderme-app')->plainTextToken;
-        return response()->json([
-            'success' => true,
-            'message' => 'Login Successful.',
-            'data' => [
-                'user' => $user,
+
+        $token = $user
+            ->createToken('orderme-app')
+            ->plainTextToken;
+
+        return ApiResponse::success(
+            message: 'Login successful.',
+            data: [
+                'user' => $user->load('roles'),
                 'token' => $token,
-            ],
-        ]);
+                'token_type' => 'Bearer',
+            ]
+        );
     }
-    public function Logout(): JsonResponse
+
+    /**
+     * Revoke the token currently being used.
+     */
+    public function logout(): JsonResponse
     {
-        request()->user()->currentAccessToken()->delete();
-        return response()->json(['success' => 'true', 'message' => 'Logged out successfully.']);
+        $user = request()->user();
+
+        $user->currentAccessToken()?->delete();
+
+        return ApiResponse::success(
+            message: 'You have been logged out successfully.'
+        );
     }
+
+    /**
+     * Revoke all tokens belonging to the authenticated user.
+     */
+    public function logoutAll(): JsonResponse
+    {
+        $user = request()->user();
+
+        $user->tokens()->delete();
+
+        return ApiResponse::success(
+            message: 'You have been logged out from all devices.'
+        );
+    }
+
+    /**
+     * Return the currently authenticated user.
+     */
     public function me(): JsonResponse
     {
-        return response()->json([
-            'success' => true,
-            'data' => ['user' => request()->user()],
-        ]);
+        $user = request()->user()->load('roles');
+
+        return ApiResponse::success(
+            message: 'Authenticated user retrieved successfully.',
+            data: [
+                'user' => $user,
+            ]
+        );
     }
 }
