@@ -34,6 +34,7 @@ class RolePermissionSeeder extends Seeder
             'products.update',
             'products.delete',
             'products.manage-stock',
+            'products.activate',
 
             // Cart
             'cart.view',
@@ -77,6 +78,7 @@ class RolePermissionSeeder extends Seeder
         $admin->givePermissionTo(Permission::all());
 
         $seller->givePermissionTo([
+            'categories.view',
             'products.view',
             'products.create',
             'products.update',
@@ -91,6 +93,7 @@ class RolePermissionSeeder extends Seeder
         ]);
 
         $buyer->givePermissionTo([
+            'categories.view',
             'products.view',
 
             'cart.view',

@@ -1,12 +1,14 @@
 <?php
 
 namespace App\Models;
-
+use App\Models\Order;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class User extends Authenticatable
 {
@@ -16,6 +18,7 @@ class User extends Authenticatable
         'name',
         'email',
         'phone',
+        'profile_photo',
         'password',
     ];
 
@@ -31,4 +34,24 @@ class User extends Authenticatable
             'password' => 'hashed',
         ];
     }
+    public function cart(): HasOne
+{
+    return $this->hasOne(Cart::class);
+}
+public function orders(): HasMany
+{
+    return $this->hasMany(Order::class);
+}
+public function sellerProfile(): HasOne
+{
+    return $this->hasOne(SellerProfile::class);
+}
+public function wishlists():HasMany
+{
+    return $this->hasMany(Wishlist::class);
+}
+public function addresses():HasMany
+{
+    return $this->hasMany(Address::class);
+}
 }

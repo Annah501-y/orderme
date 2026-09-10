@@ -1,5 +1,7 @@
 <?php
 
+use Illuminate\Support\Env;
+
 return [
 
     /*
@@ -31,8 +33,12 @@ return [
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
-            'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
-        ],
+        'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
     ],
+],
+'clickpesa' => [
+    'client_id' => env('IDPincuIywUDHLlCE1Kqq1NL4X4nuRYO'),
+    'api_key' => env('SKAx5dl4ZUB88noZLQaOqLTS0jwi6cGNotwusJ2QzL'),
+],
 
 ];
