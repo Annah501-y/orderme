@@ -8,10 +8,15 @@ use App\Http\Requests\UpdateCategoryRequest;
 use App\Http\Resources\CategoryResource;
 use App\Models\Category;
 use App\Support\ApiResponse;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Http\JsonResponse;
 
 class CategoryController extends Controller
 {
+    /**
+     * Public category list.
+     * Only active categories are visible to buyers and sellers.
+     */
     public function index()
     {
         $categories = Category::query()
@@ -22,34 +27,76 @@ class CategoryController extends Controller
         return CategoryResource::collection($categories);
     }
 
-    public function store(StoreCategoryRequest $request): JsonResponse
+    /**
+     * Admin category list.
+     * Admin can see both active and inactive categories.
+     */
+    public function adminIndex()
     {
-        $category = Category::create($request->validated());
+        $categories = Category::query()
+            ->orderBy('name')
+            ->get();
 
-        return ApiResponse::success(
-            'Category created successfully.',
-            new CategoryResource($category),
-            201
-        );
+        return CategoryResource::collection($categories);
     }
 
+    /**
+     * Create a new category.
+     */
+    public function store(StoreCategoryRequest $request): JsonResponse
+    {
+     $data = $request->validated();
+     if ($request->hasFile('image')){
+        $data['image'] =
+        $request->file('image')
+        ->store('categories','public');
+     }
+     $category =Category::create($data);
+     return ApiResponse::success(
+        'category created successfully.',
+        new CategoryResource($category),
+        201
+     );
+    }
+
+    /**
+     * Show a single category.
+     */
     public function show(Category $category): CategoryResource
     {
         return new CategoryResource($category);
     }
 
+    /**
+     * Update a category.
+     */
     public function update(
         UpdateCategoryRequest $request,
         Category $category
     ): JsonResponse {
-        $category->update($request->validated());
-
+        $data = $request->validated();
+    
+        if ($request->hasFile('image')) {
+    
+            if ($category->image) {
+                Storage::disk('public')->delete($category->image);
+            }
+    
+            $data['image'] = $request->file('image')
+                ->store('categories', 'public');
+        }
+    
+        $category->update($data);
+    
         return ApiResponse::success(
             'Category updated successfully.',
             new CategoryResource($category->fresh())
         );
     }
 
+    /**
+     * Delete a category.
+     */
     public function destroy(Category $category): JsonResponse
     {
         $category->delete();

@@ -27,6 +27,12 @@ class StoreCategoryRequest extends FormRequest
                 'string',
                 'max:1000',
             ],
+            'image'=>[
+                'nullable',
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:2048',
+            ],
 
             'is_active' => [
                 'sometimes',

@@ -2,6 +2,9 @@
 
 namespace App\Models;
 use App\Models\Order;
+use App\Models\Product;
+use App\Models\SellerProfile;
+use App\Models\RiderInvitation;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -32,6 +35,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_active'=> 'boolean',
         ];
     }
     public function cart(): HasOne
@@ -54,4 +58,13 @@ public function addresses():HasMany
 {
     return $this->hasMany(Address::class);
 }
+public function products():HasMany
+{
+    return $this->hasMany(Product::class, 'seller_id');
+}
+public function riderInvitation():HasOne
+{
+return $this->hasOne(RiderInvitation::class);
+}
+
 }

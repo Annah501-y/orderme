@@ -22,6 +22,19 @@ class RolePermissionSeeder extends Seeder
             'sellers.reject',
             'sellers.suspend',
 
+            // Riders
+            'riders.view',
+            'riders.create',
+            'riders.update',
+            'riders.delete',
+            'riders.activate',
+
+            // Deliveries
+            'deliveries.view',
+            'deliveries.assign',
+            'deliveries.update',
+            'deliveries.manage',
+
             // Categories
             'categories.view',
             'categories.create',
@@ -74,15 +87,18 @@ class RolePermissionSeeder extends Seeder
         $admin = Role::findOrCreate('admin', 'web');
         $seller = Role::findOrCreate('seller', 'web');
         $buyer = Role::findOrCreate('buyer', 'web');
+        $rider = Role::findOrCreate('rider', 'web');
 
+        // Admin
         $admin->givePermissionTo(Permission::all());
 
+        // Seller
         $seller->givePermissionTo([
             'categories.view',
             'products.view',
             'products.create',
             'products.update',
-            'products.delete',
+            'products.activate',
             'products.manage-stock',
 
             'orders.view',
@@ -92,6 +108,7 @@ class RolePermissionSeeder extends Seeder
             'reviews.view',
         ]);
 
+        // Buyer
         $buyer->givePermissionTo([
             'categories.view',
             'products.view',
@@ -110,6 +127,12 @@ class RolePermissionSeeder extends Seeder
             'reviews.update',
 
             'orders.confirm-delivery',
+        ]);
+
+        // Rider
+        $rider->givePermissionTo([
+            'deliveries.view',
+            'deliveries.update',
         ]);
     }
 }

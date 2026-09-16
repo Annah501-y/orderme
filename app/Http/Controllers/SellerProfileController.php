@@ -19,11 +19,17 @@ class SellerProfileController extends Controller
         if (! $user->hasRole('seller')) {
             return response()->json([
                 'success' => false,
-                'message' => 'Only seller accounts can create a seller profile.',
+                'message' => 'Only seller accounts can manage a seller profile.',
             ], 403);
         }
 
         $validated = $request->validated();
+
+        /*
+        |--------------------------------------------------------------------------
+        | Seller Profile
+        |--------------------------------------------------------------------------
+        */
 
         $profile = SellerProfile::updateOrCreate(
             [
@@ -33,20 +39,46 @@ class SellerProfileController extends Controller
                 'store_name' => $validated['store_name'],
                 'store_description' => $validated['store_description'] ?? null,
                 'phone' => $validated['phone'] ?? null,
-
-                // A new submission requires admin review.
-                'status' => 'pending',
-                'rejection_reason' => null,
             ]
         );
 
+        /*
+        |--------------------------------------------------------------------------
+        | Seller Store Address
+        |--------------------------------------------------------------------------
+        */
+
+        $address = $user->addresses()
+            ->where('is_default', true)
+            ->first();
+
+        if ($address) {
+            $address->update([
+                'address_line' => $validated['address_line'],
+                'district' => $validated['district'],
+                'city' => $validated['city'],
+                'region' => $validated['region'],
+                'country' => $validated['country'] ?? 'Tanzania',
+            ]);
+        } else {
+            $address = $user->addresses()->create([
+                'address_line' => $validated['address_line'],
+                'district' => $validated['district'],
+                'city' => $validated['city'],
+                'region' => $validated['region'],
+                'country' => $validated['country'] ?? 'Tanzania',
+                'is_default' => true,
+            ]);
+        }
+
         return response()->json([
             'success' => true,
-            'message' => 'Seller profile submitted successfully. Your account is now awaiting admin approval.',
+            'message' => 'Seller profile updated successfully.',
             'data' => [
                 'seller_profile' => $profile,
+                'address' => $address,
             ],
-        ], 201);
+        ], 200);
     }
 
     /**
@@ -72,10 +104,15 @@ class SellerProfileController extends Controller
             ], 404);
         }
 
+        $address = $user->addresses()
+            ->where('is_default', true)
+            ->first();
+
         return response()->json([
             'success' => true,
             'data' => [
                 'seller_profile' => $profile,
+                'address' => $address,
             ],
         ]);
     }
