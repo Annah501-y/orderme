@@ -4,6 +4,7 @@ use App\Http\Controllers\AdminDashboardController;
 use App\Http\Controllers\AdminSellerRequestController;
 use App\Http\Controllers\Api\AdminRiderController;
 use App\Http\Controllers\Api\AdminUserController;
+use App\Http\Controllers\Api\AdminDeliveryController;
 use App\Http\Controllers\Api\AddressController;
 use App\Http\Controllers\Api\AdminProductController;
 
@@ -16,6 +17,7 @@ use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\RiderOrderController;
 use App\Http\Controllers\Api\RiderLocationController;
 use App\Http\Controllers\Api\RiderDeliveryController;
+use App\Http\Controllers\Api\RiderDeliveryStopController;
 use App\Http\Controllers\Api\DeliveryAssignmentController;
 use App\Http\Controllers\Api\WishlistController;
 use App\Http\Controllers\SellerProfileController;
@@ -122,6 +124,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/admin/riders',[AdminRiderController::class, 'store'])
         ->middleware('permission:riders.create')
         ->name('admin.riders.store');
+        Route::post('/admin/deliveries', [AdminDeliveryController::class, 'store'])
+        ->middleware('permission:deliveries.assign')
+        ->name('admin.deliveries.store');
 
     });
 
@@ -463,6 +468,13 @@ Route::get(
     [RiderDeliveryController::class, 'index']
 )->middleware('permission:deliveries.view')
  ->name('rider.deliveries.index');
+ Route::put('/rider/deliveries/{delivery}', [RiderDeliveryController::class,'update'])
+ ->middleware('permission:deliveries.update')
+ ->name('rider.deliveries.update');
+
+ Route::put('/rider/delivery-stops/{stop}', [RiderDeliveryStopController::class, 'update'])
+    ->middleware('permission:deliveries.update')
+    ->name('rider.delivery-stops.update');
 
 });
 

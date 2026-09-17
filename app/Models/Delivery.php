@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Delivery extends Model
 {
@@ -41,5 +42,9 @@ class Delivery extends Model
     public function deliveries_stops():HasMany
     {
         return $this->hasMany(Deliveries_stop::class)->orderBy('sequence');
+    }
+    public function otp():HasOne
+    {
+        return $this->hasOne(DeliveryOtp::class);
     }
 }
