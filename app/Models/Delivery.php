@@ -21,7 +21,7 @@ class Delivery extends Model
         'cancelled_at',
         'cancellation_reason',
     ];
-    protected $cast = [
+    protected $casts = [
         'current_latitude' => 'decimal:7',
         'current_longitude' => 'decimal:7',
         'location_updated_at' => 'datetime',

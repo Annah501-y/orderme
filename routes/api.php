@@ -14,6 +14,9 @@ use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\RiderOrderController;
+use App\Http\Controllers\Api\RiderLocationController;
+use App\Http\Controllers\Api\RiderDeliveryController;
+use App\Http\Controllers\Api\DeliveryAssignmentController;
 use App\Http\Controllers\Api\WishlistController;
 use App\Http\Controllers\SellerProfileController;
 use Illuminate\Support\Facades\Route;
@@ -444,6 +447,22 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/rider/orders',[RiderOrderController::class, 'index'])
     ->middleware('permission:deliveries.view')
     ->name('riders.orders.index');
+
+    Route::put('/rider/location', [RiderLocationController::class, 'update'])
+    ->middleware('permission:deliveries.update')
+    ->name('rider.location.update');
+
+    Route::post(
+        '/orders/{orderId}/assign-delivery',
+        [DeliveryAssignmentController::class, 'assign']
+    )->name('orders.assign-delivery');
+    
+
+Route::get(
+    '/rider/deliveries',
+    [RiderDeliveryController::class, 'index']
+)->middleware('permission:deliveries.view')
+ ->name('rider.deliveries.index');
 
 });
 
