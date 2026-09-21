@@ -41,4 +41,14 @@ return [
     'api_key' => env('SKAx5dl4ZUB88noZLQaOqLTS0jwi6cGNotwusJ2QzL'),
 ],
 
+'beem'=>[
+    'api_key'=>
+    env('BEEM_API_KEY'),
+    'secret_key'=>
+    env('BEEM_SECRET_KEY'),
+    'sender_id'=>
+    env('BEEM_SENDER_ID', 'OrderMe'),
+],
+
+
 ];

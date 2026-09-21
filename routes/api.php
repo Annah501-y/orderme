@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\AdminUserController;
 use App\Http\Controllers\Api\AdminDeliveryController;
 use App\Http\Controllers\Api\AddressController;
 use App\Http\Controllers\Api\AdminProductController;
+use App\Http\Controllers\Api\AdminSettingsController;
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CartController;
@@ -14,6 +15,7 @@ use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\ProfileController;
+use App\Http\Controllers\Api\RiderDeliveryOtpController;
 use App\Http\Controllers\Api\RiderOrderController;
 use App\Http\Controllers\Api\RiderLocationController;
 use App\Http\Controllers\Api\RiderDeliveryController;
@@ -124,9 +126,36 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/admin/riders',[AdminRiderController::class, 'store'])
         ->middleware('permission:riders.create')
         ->name('admin.riders.store');
+        
+        Route::get('/admin/deliveries', [AdminDeliveryController::class, 'index'])
+        ->middleware('permission:deliveries.assign')
+        ->name('admin.deliveries.index');
         Route::post('/admin/deliveries', [AdminDeliveryController::class, 'store'])
         ->middleware('permission:deliveries.assign')
         ->name('admin.deliveries.store');
+
+
+
+            Route::get('/admin/settings', [AdminSettingsController::class, 'show'])
+                ->middleware('permission:users.view')
+                ->name('admin.settings.show');
+        
+            Route::put('/admin/settings/profile', [AdminSettingsController::class, 'updateProfile'])
+                ->middleware('permission:users.update')
+                ->name('admin.settings.profile');
+            
+            Route::post('/admin/settings/profile-photo',[AdminSettingsController::class, 'updateProfilePhoto'])
+                ->middleware('permission:users.update')
+                ->name('admin.settings.profile-photo');
+            Route::put('/admin/settings/password', [AdminSettingsController::class, 'updatePassword'])
+                ->middleware('permission:users.update')
+                ->name('admin.settings.password');
+        
+            Route::post('/admin/settings/logout-all', [AdminSettingsController::class, 'logoutAll'])
+                ->middleware('permission:users.update')
+                ->name('admin.settings.logout-all');
+        
+        
 
     });
 
@@ -475,7 +504,13 @@ Route::get(
  Route::put('/rider/delivery-stops/{stop}', [RiderDeliveryStopController::class, 'update'])
     ->middleware('permission:deliveries.update')
     ->name('rider.delivery-stops.update');
+ Route::post('/rider/deliveries/{delivery}/otp', [RiderDeliveryOtpController::class, 'generate'] )
+    ->middleware('permission:deliveries.update')
+    ->name('rider.deliveries.otp.generate');
 
+Route::post('/rider/deliveries/{delivery}/otp/verify',[RiderDeliveryOtpController::class, 'verify'])
+    ->middleware('permission:deliveries.update')
+    ->name('rider.deliveries.otp.verify');
 });
 
 Route::post('/rider/activate',[AdminRiderController::class, 'activate'])

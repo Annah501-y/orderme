@@ -13,6 +13,27 @@ use Illuminate\Support\Facades\DB;
 
 class AdminDeliveryController extends Controller
 {
+
+        public function index(): JsonResponse
+    {
+        $deliveries = Delivery::with([
+            'order.user',
+            'rider.user',
+            'otp',
+
+            'deliveries_stops.sellerOrder.seller',
+
+            'deliveries_stops.sellerOrder.order.items.product',
+        ])
+            ->latest()
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Deliveries retrieved successfully.',
+            'data' => $deliveries,
+        ]);
+    }   
     /**
      * Create a delivery and assign it to a rider.
      */
