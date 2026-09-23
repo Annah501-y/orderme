@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AddCartItemRequest;
 use App\Http\Requests\UpdateCartItemRequest;
+use App\Http\Resources\ProductResource;
 use App\Models\Cart;
 use App\Models\CartItem;
 use App\Models\Product;
@@ -16,20 +17,49 @@ class CartController extends Controller
      * Show the authenticated user's cart.
      */
     public function show(Request $request)
-    {
-        $cart = Cart::firstOrCreate([
-            'user_id' => $request->user()->id,
-        ]);
-
-        $cart->load([
+{
+    $cart = Cart::where('user_id', $request->user()->id)
+        ->with([
             'items.product.category',
-        ]);
+            'items.product.seller',
+        ])
+        ->first();
 
+    if (! $cart) {
         return response()->json([
             'success' => true,
-            'data' => $cart,
+            'data' => [
+                'id' => null,
+                'user_id' => $request->user()->id,
+                'items' => [],
+            ],
         ]);
     }
+
+    $items = $cart->items->map(function ($item) {
+        return [
+            'id' => $item->id,
+            'cart_id' => $item->cart_id,
+            'quantity' => $item->quantity,
+            'created_at' => $item->created_at,
+            'updated_at' => $item->updated_at,
+            'product' => $item->product
+                ? (new ProductResource($item->product))->resolve()
+                : null,
+        ];
+    });
+
+    return response()->json([
+        'success' => true,
+        'data' => [
+            'id' => $cart->id,
+            'user_id' => $cart->user_id,
+            'created_at' => $cart->created_at,
+            'updated_at' => $cart->updated_at,
+            'items' => $items,
+        ],
+    ]);
+}
 
     /**
      * Add a product to the cart.

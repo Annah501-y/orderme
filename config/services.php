@@ -37,8 +37,9 @@ return [
     ],
 ],
 'clickpesa' => [
-    'client_id' => env('IDPincuIywUDHLlCE1Kqq1NL4X4nuRYO'),
-    'api_key' => env('SKAx5dl4ZUB88noZLQaOqLTS0jwi6cGNotwusJ2QzL'),
+    'base_url' => env('CLICKPESA_BASE_URL', 'https://api.clickpesa.com'),
+    'client_id' => env('CLICKPESA_CLIENT_ID'),
+    'api_key' => env('CLICKPESA_API_KEY'),
 ],
 
 'beem'=>[

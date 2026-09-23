@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\AdminSettingsController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\CategoryController;
+use App\Http\Controllers\Api\ClickPesaWebhookController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\ProfileController;
@@ -23,7 +24,10 @@ use App\Http\Controllers\Api\RiderDeliveryStopController;
 use App\Http\Controllers\Api\DeliveryAssignmentController;
 use App\Http\Controllers\Api\WishlistController;
 use App\Http\Controllers\SellerProfileController;
+
 use Illuminate\Support\Facades\Route;
+
+use App\Services\RoutingService;
 
 
 /*
@@ -72,6 +76,7 @@ Route::get('/categories/{category}', [CategoryController::class, 'show']);
 Route::get('/products', [ProductController::class, 'index']);
 
 Route::get('/products/{product}', [ProductController::class, 'show']);
+Route::get('/deals',[ProductController::class, 'deals']);
 
 
 /*
@@ -318,10 +323,18 @@ Route::middleware('auth:sanctum')->group(function () {
     */
 
     // Create order from cart
+    // Route::POST(
+    //     '/orders',
+    //     [OrderController::class, 'checkout']
+    // );
+
+
     Route::post(
-        '/orders',
+        '/orders/checkout',
         [OrderController::class, 'checkout']
     );
+    Route::post('/orders/calculate-delivery',
+    [OrderController::class, 'calculateDeliveryFee']);
 
     // Customer's own orders
     Route::get(
@@ -511,7 +524,14 @@ Route::get(
 Route::post('/rider/deliveries/{delivery}/otp/verify',[RiderDeliveryOtpController::class, 'verify'])
     ->middleware('permission:deliveries.update')
     ->name('rider.deliveries.otp.verify');
+
+
+Route::post('/webhooks/clickpesa', [ClickPesaWebhookController::class, 'handle']);
+    
 });
 
 Route::post('/rider/activate',[AdminRiderController::class, 'activate'])
      ->name('rider.activate');
+
+    
+    

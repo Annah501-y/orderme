@@ -258,4 +258,26 @@ class ProductController extends Controller {
             $product->fresh()->load( [ 'category', 'seller' ] )
         );
     }
+    public function deals()
+    {
+        $products = Product::with([
+            'category',
+            'seller'
+        ])
+            ->where('is_active', true)
+            ->whereNotNull('discount')
+            ->where('discount', '>', 0)
+            ->whereNotNull('old_price')
+            ->where('old_price', '>', 0)
+            ->where('stock_quantity', '>', 0)
+            ->orderByDesc('discount')
+            ->latest()
+            ->take(8)
+            ->get();
+    
+        return response()->json([
+            'success' => true,
+            'data' => ProductResource::collection($products),
+        ]);
+    }
 }

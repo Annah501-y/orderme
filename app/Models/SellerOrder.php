@@ -13,6 +13,9 @@ class SellerOrder extends Model
         'seller_id',
         'status',
         'seller_total',
+        'distance_km',
+        'duration_minutes',
+        'delivery_fee',
     ];
 
     protected $casts = [

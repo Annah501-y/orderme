@@ -2,6 +2,7 @@
 
 namespace App\Models;
 use App\Models\Payment;
+use App\Models\Address;
 use App\Models\SellerOrder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,8 +12,13 @@ class Order extends Model
 {
     protected $fillable = [
         'user_id',
+        'address_id',
         'status',
+        'subtotal',
+        'delivery_fee',
+        'vehicle_type',
         'total_amount',
+       
     ];
 
     protected $casts = [
@@ -39,5 +45,9 @@ class Order extends Model
 public function deliveries():HasMany
 {
     return $this->hasMany(Delivery::class);
+}
+public function address():BelongsTo
+{
+    return $this->belongsTo(Address::class);
 }
 }

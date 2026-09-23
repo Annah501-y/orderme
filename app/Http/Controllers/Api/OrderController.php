@@ -1,11 +1,14 @@
 <?php
 
 namespace App\Http\Controllers\Api;
-
+use App\Exceptions\ClickPesaException;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StorePaymentRequest;
 use App\Http\Requests\UpdateOrderStatusRequest;
+use App\Http\Requests\CheckoutOrderRequest;
+use App\Http\Requests\DeliveryCalculationRequest;
 use App\Models\Cart;
+use App\Models\Address;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Payment;
@@ -13,6 +16,10 @@ use App\Models\SellerOrder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Services\DeliveryFeeService;
+use App\Services\ClickPesaService;
+use App\Services\RoutingService;
+use Throwable;
 
 class OrderController extends Controller
 {
@@ -58,137 +65,487 @@ class OrderController extends Controller
     /**
      * Checkout cart and create order.
      */
-    public function checkout(Request $request): JsonResponse
-    {
-        $user = $request->user();
+   /**
+ * Checkout selected cart items and create order.
+ *
+ * The frontend sends the cart item IDs selected by
+ * the customer. The backend validates ownership,
+ * stock, prices, and seller information.
+ */
 
-        $order = DB::transaction(function () use ($user) {
+ public function checkout(
+    CheckoutOrderRequest $request,
+    RoutingService $routingService,
+    DeliveryFeeService $deliveryFeeService
+): JsonResponse {
+    $user = $request->user();
 
-            $cart = Cart::where('user_id', $user->id)
-                ->with('items.product')
-                ->lockForUpdate()
-                ->first();
+    $cartItemIds = $request->input('cart_item_ids');
+    $addressId = $request->input('address_id');
+    $vehicleType = $request->input('vehicle_type');
 
-            if (! $cart || $cart->items->isEmpty()) {
-                abort(422, 'Your cart is empty.');
-            }
+    /*
+    |--------------------------------------------------------------------------
+    | 1. Validate customer's delivery address
+    |--------------------------------------------------------------------------
+    */
 
-            /*
-             * Validate products and stock.
-             */
-            foreach ($cart->items as $cartItem) {
-                $product = $cartItem->product;
+    $customerAddress = Address::where('id', $addressId)
+        ->where('user_id', $user->id)
+        ->first();
 
-                if (! $product) {
-                    abort(422, 'One of the products in your cart no longer exists.');
-                }
-
-                if (! $product->is_active) {
-                    abort(
-                        422,
-                        "The product {$product->name} is no longer available."
-                    );
-                }
-
-                if ($cartItem->quantity > $product->stock_quantity) {
-                    abort(
-                        422,
-                        "Insufficient stock for {$product->name}."
-                    );
-                }
-            }
-
-            /*
-             * Calculate total.
-             */
-            $totalAmount = $cart->items->sum(function ($cartItem) {
-                return $cartItem->quantity * $cartItem->product->price;
-            });
-
-            /*
-             * Create main order.
-             */
-            $order = Order::create([
-                'user_id' => $user->id,
-                'status' => 'pending',
-                'total_amount' => $totalAmount,
-            ]);
-
-            /*
-             * Create order items and reduce stock.
-             */
-            foreach ($cart->items as $cartItem) {
-
-                $product = $cartItem->product;
-
-                OrderItem::create([
-                    'order_id' => $order->id,
-                    'product_id' => $product->id,
-                    'quantity' => $cartItem->quantity,
-                    'unit_price' => $product->price,
-                    'total_price' => $cartItem->quantity * $product->price,
-                ]);
-
-                $product->decrement(
-                    'stock_quantity',
-                    $cartItem->quantity
-                );
-            }
-
-            /*
-             * Group cart items by seller.
-             */
-            $sellerTotals = [];
-
-            foreach ($cart->items as $cartItem) {
-
-                $sellerId = $cartItem->product->seller_id;
-
-                $subtotal =
-                    $cartItem->quantity *
-                    $cartItem->product->price;
-
-                if (! isset($sellerTotals[$sellerId])) {
-                    $sellerTotals[$sellerId] = 0;
-                }
-
-                $sellerTotals[$sellerId] += $subtotal;
-            }
-
-            /*
-             * Create one seller order per seller.
-             */
-            foreach ($sellerTotals as $sellerId => $sellerTotal) {
-
-                SellerOrder::create([
-                    'order_id' => $order->id,
-                    'seller_id' => $sellerId,
-                    'status' => 'pending',
-                    'seller_total' => $sellerTotal,
-                ]);
-            }
-
-            /*
-             * Clear cart after successful checkout.
-             */
-            $cart->items()->delete();
-
-            return $order;
-        });
-
-        $order->load([
-            'items.product.seller',
-            'sellerOrders.seller',
-        ]);
-
+    if (! $customerAddress) {
         return response()->json([
-            'success' => true,
-            'message' => 'Order created successfully.',
-            'data' => $order,
-        ], 201);
+            'success' => false,
+            'message' => 'The selected delivery address is invalid.',
+        ], 422);
     }
 
-    /**
+    if (
+        $customerAddress->latitude === null ||
+        $customerAddress->longitude === null
+    ) {
+        return response()->json([
+            'success' => false,
+            'message' =>
+                'The selected address does not have valid coordinates.',
+        ], 422);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | 2. Load selected cart items
+    |--------------------------------------------------------------------------
+    */
+
+    $cart = Cart::where('user_id', $user->id)
+        ->with([
+            'items.product.seller',
+            'items.product.category',
+        ])
+        ->first();
+
+    if (! $cart) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Your cart is empty.',
+        ], 422);
+    }
+
+    $cartItems = $cart->items
+        ->whereIn('id', $cartItemIds)
+        ->values();
+
+    if (
+        $cartItems->isEmpty() ||
+        $cartItems->count() !== count($cartItemIds)
+    ) {
+        return response()->json([
+            'success' => false,
+            'message' =>
+                'One or more selected cart items are invalid.',
+        ], 422);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | 3. Validate products and calculate subtotal
+    |--------------------------------------------------------------------------
+    */
+
+    $subtotal = 0;
+
+    foreach ($cartItems as $cartItem) {
+        $product = $cartItem->product;
+
+        if (! $product) {
+            return response()->json([
+                'success' => false,
+                'message' =>
+                    'One of the selected products no longer exists.',
+            ], 422);
+        }
+
+        if (! $product->is_active) {
+            return response()->json([
+                'success' => false,
+                'message' =>
+                    "The product {$product->name} is no longer available.",
+            ], 422);
+        }
+
+        if ($cartItem->quantity > $product->stock_quantity) {
+            return response()->json([
+                'success' => false,
+                'message' =>
+                    "Insufficient stock for {$product->name}.",
+            ], 422);
+        }
+
+        $subtotal +=
+            $cartItem->quantity * $product->price;
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | 4. Group selected items by seller
+    |--------------------------------------------------------------------------
+    */
+
+    $sellerGroups = $cartItems->groupBy(
+        fn ($cartItem) => $cartItem->product->seller_id
+    );
+
+    $sellerDeliveryData = [];
+    $totalDeliveryFee = 0;
+
+    /*
+    |--------------------------------------------------------------------------
+    | 5. Calculate real route and delivery fee for each seller
+    |--------------------------------------------------------------------------
+    */
+
+    foreach ($sellerGroups as $sellerId => $sellerItems) {
+
+        $sellerAddress = Address::where('user_id', $sellerId)
+            ->orderByDesc('is_default')
+            ->latest()
+            ->first();
+
+        if (! $sellerAddress) {
+            return response()->json([
+                'success' => false,
+                'message' =>
+                    "Seller {$sellerId} has not added a delivery address.",
+            ], 422);
+        }
+
+        if (
+            $sellerAddress->latitude === null ||
+            $sellerAddress->longitude === null
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' =>
+                    "Seller {$sellerId} does not have valid address coordinates.",
+            ], 422);
+        }
+
+        try {
+            $route = $routingService->getDrivingRoute(
+                (float) $sellerAddress->latitude,
+                (float) $sellerAddress->longitude,
+                (float) $customerAddress->latitude,
+                (float) $customerAddress->longitude
+            );
+
+            $delivery = $deliveryFeeService->calculate(
+                $route['distance_km'],
+                $vehicleType
+            );
+        } catch (Throwable $exception) {
+            return response()->json([
+                'success' => false,
+                'message' =>
+                    'Unable to calculate delivery for one of the sellers.',
+            ], 422);
+        }
+
+        $sellerSubtotal = $sellerItems->sum(
+            fn ($item) =>
+                $item->quantity * $item->product->price
+        );
+
+        $sellerDeliveryData[$sellerId] = [
+            'seller_subtotal' => $sellerSubtotal,
+            'distance_km' => $route['distance_km'],
+            'duration_minutes' => $route['duration_minutes'],
+            'delivery_fee' => $delivery['delivery_fee'],
+        ];
+
+        $totalDeliveryFee += $delivery['delivery_fee'];
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | 6. Calculate final total
+    |--------------------------------------------------------------------------
+    */
+
+    $totalAmount = $subtotal + $totalDeliveryFee;
+
+    /*
+    |--------------------------------------------------------------------------
+    | 7. Create order and seller orders in one transaction
+    |--------------------------------------------------------------------------
+    */
+
+    $order = DB::transaction(function () use (
+        $user,
+        $addressId,
+        $vehicleType,
+        $subtotal,
+        $totalDeliveryFee,
+        $totalAmount,
+        $cart,
+        $cartItems,
+        $sellerDeliveryData
+    ) {
+
+        $order = Order::create([
+            'user_id' => $user->id,
+            'address_id' => $addressId,
+            'status' => 'pending',
+            'subtotal' => $subtotal,
+            'delivery_fee' => $totalDeliveryFee,
+            'vehicle_type' => $vehicleType,
+            'total_amount' => $totalAmount,
+        ]);
+
+        foreach ($cartItems as $cartItem) {
+            $product = $cartItem->product;
+
+            $itemTotal =
+                $cartItem->quantity * $product->price;
+
+            OrderItem::create([
+                'order_id' => $order->id,
+                'product_id' => $product->id,
+                'quantity' => $cartItem->quantity,
+                'unit_price' => $product->price,
+                'total_price' => $itemTotal,
+            ]);
+
+            $product->decrement(
+                'stock_quantity',
+                $cartItem->quantity
+            );
+        }
+
+        foreach ($sellerDeliveryData as $sellerId => $deliveryData) {
+            SellerOrder::create([
+                'order_id' => $order->id,
+                'seller_id' => $sellerId,
+                'status' => 'pending',
+                'seller_total' =>
+                    $deliveryData['seller_subtotal'],
+                'distance_km' =>
+                    $deliveryData['distance_km'],
+                'duration_minutes' =>
+                    $deliveryData['duration_minutes'],
+                'delivery_fee' =>
+                    $deliveryData['delivery_fee'],
+            ]);
+        }
+
+        $cart->items()
+            ->whereIn('id', $cartItems->pluck('id'))
+            ->delete();
+
+        return $order;
+    });
+
+    $order->load([
+        'address',
+        'items.product.seller',
+        'sellerOrders.seller',
+    ]);
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Order created successfully.',
+        'data' => $order,
+    ], 201);
+}
+
+public function calculateDeliveryFee(
+    DeliveryCalculationRequest $request,
+    RoutingService $routingService,
+    DeliveryFeeService $deliveryFeeService
+): JsonResponse {
+    $user = $request->user();
+
+    $validated = $request->validated();
+
+    $addressId = $validated['address_id'];
+    $vehicleType = $validated['vehicle_type'];
+    $cartItemIds = $validated['cart_item_ids'];
+
+    $customerAddress = Address::where('id', $addressId)
+        ->where('user_id', $user->id)
+        ->first();
+
+    if (! $customerAddress) {
+        return response()->json([
+            'message' =>
+                'The selected address does not belong to you.',
+        ], 403);
+    }
+
+    if (
+        $customerAddress->latitude === null ||
+        $customerAddress->longitude === null
+    ) {
+        return response()->json([
+            'message' =>
+                'Your selected address does not have valid location coordinates.',
+        ], 422);
+    }
+
+    $cart = Cart::where('user_id', $user->id)
+        ->with([
+            'items.product.seller.addresses',
+        ])
+        ->first();
+
+    if (! $cart) {
+        return response()->json([
+            'message' => 'Your cart is empty.',
+        ], 422);
+    }
+
+    $selectedItems = $cart->items
+        ->whereIn('id', $cartItemIds)
+        ->values();
+
+    if ($selectedItems->isEmpty()) {
+        return response()->json([
+            'message' =>
+                'The selected cart items could not be found.',
+        ], 422);
+    }
+
+    $subtotal = 0;
+
+    foreach ($selectedItems as $cartItem) {
+        if (! $cartItem->product) {
+            return response()->json([
+                'message' =>
+                    'One of the selected products is no longer available.',
+            ], 422);
+        }
+
+        if (
+            ! $cartItem->product->is_active ||
+            $cartItem->product->stock_quantity <
+                $cartItem->quantity
+        ) {
+            return response()->json([
+                'message' =>
+                    "Product {$cartItem->product->name} is unavailable or has insufficient stock.",
+            ], 422);
+        }
+
+        $subtotal +=
+            (float) $cartItem->product->price *
+            (int) $cartItem->quantity;
+    }
+
+    $sellerGroups = $selectedItems->groupBy(
+        fn ($cartItem) =>
+            $cartItem->product->seller_id
+    );
+
+    $totalDeliveryFee = 0;
+    $deliveryBreakdown = [];
+
+    foreach ($sellerGroups as $sellerId => $sellerItems) {
+        $seller = $sellerItems
+            ->first()
+            ->product
+            ->seller;
+
+        $sellerAddress = $seller->addresses
+            ->sortByDesc('is_default')
+            ->sortByDesc('created_at')
+            ->first();
+
+        if (! $sellerAddress) {
+            return response()->json([
+                'message' =>
+                    "Seller {$seller->name} does not have a saved delivery address.",
+            ], 422);
+        }
+
+        if (
+            $sellerAddress->latitude === null ||
+            $sellerAddress->longitude === null
+        ) {
+            return response()->json([
+                'message' =>
+                    "Seller {$seller->name} does not have valid location coordinates.",
+            ], 422);
+        }
+
+        try {
+            $route = $routingService->getDrivingRoute(
+                (float) $sellerAddress->latitude,
+                (float) $sellerAddress->longitude,
+                (float) $customerAddress->latitude,
+                (float) $customerAddress->longitude
+            );
+
+            $feeData = $deliveryFeeService->calculate(
+                (float) $route['distance_km'],
+                $vehicleType
+            );
+        // } catch (Throwable $exception) {
+        //     report($exception);
+
+        //     return response()->json([
+        //         'message' =>
+        //             'Unable to calculate delivery for one of the sellers.',
+        //     ], 503);
+        // }
+         } catch(Throwable $exception){
+            report($exception);
+            return response()->json([
+                    'message'=>$exception->getFile(),
+                    'line'=>$exception->getLine(),
+            ],500);
+        }
+
+        $sellerSubtotal = $sellerItems->sum(
+            fn ($cartItem) =>
+                (float) $cartItem->product->price *
+                (int) $cartItem->quantity
+        );
+
+        $totalDeliveryFee +=
+            (float) $feeData['delivery_fee'];
+
+        $deliveryBreakdown[] = [
+            'seller_id' => $sellerId,
+            'seller_name' => $seller->name,
+            'seller_subtotal' => round($sellerSubtotal, 2),
+            'distance_km' => $route['distance_km'],
+            'duration_minutes' =>
+                $route['duration_minutes'],
+            'vehicle_type' =>
+                $feeData['vehicle_type'],
+            'rate_per_km' =>
+                $feeData['rate_per_km'],
+            'delivery_fee' =>
+                $feeData['delivery_fee'],
+        ];
+    }
+
+    $totalAmount = $subtotal + $totalDeliveryFee;
+
+    return response()->json([
+        'message' =>
+            'Delivery fee calculated successfully.',
+
+        'data' => [
+            'subtotal' => round($subtotal, 2),
+            'delivery_fee' => round($totalDeliveryFee, 2),
+            'total_amount' => round($totalAmount, 2),
+            'vehicle_type' => $vehicleType,
+            'delivery_breakdown' => $deliveryBreakdown,
+        ],
+    ]);
+}
+/**
      * Cancel customer's entire order.
      */
     public function cancel(Request $request, Order $order): JsonResponse
@@ -626,80 +983,133 @@ class OrderController extends Controller
     /**
      * Create a payment for an order.
      */
-    public function payment(
-        StorePaymentRequest $request,
-        Order $order
-    ): JsonResponse {
-        /*
-         * Customer can only pay for their own order.
-         */
-        if ($order->user_id !== $request->user()->id) {
-            abort(404);
-        }
 
-        /*
-         * Prevent duplicate active payments.
-         */
-        $existingPayment = $order->payments()
-            ->whereIn('status', [
-                'pending',
-                'processing',
-                'paid',
-            ])
-            ->latest()
-            ->first();
 
-        if ($existingPayment) {
-            return response()->json([
-                'success' => false,
-                'message' => 'A payment already exists for this order.',
-                'data' => [
-                    'payment' => $existingPayment,
-                ],
-            ], 422);
-        }
+    
+     
 
-        /*
-         * Payment is only allowed for pending/confirmed orders.
-         */
-        if (! in_array(
-            $order->status,
-            [
-                'pending',
-                'confirmed',
-            ],
-            true
-        )) {
-            return response()->json([
-                'success' => false,
-                'message' =>
-                    "Payment cannot be made while the order status is {$order->status}.",
-            ], 422);
-        }
-
-        /*
-         * Create payment record.
-         */
-        $payment = Payment::create([
-            'order_id' => $order->id,
-            'provider' => 'clickpesa',
-            'method' => $request->input('method'),
-            'amount' => $order->total_amount,
-            'currency' => 'TZS',
-            'status' => 'pending',
-        ]);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Payment initiated successfully.',
-            'data' => [
-                'payment_id' => $payment->id,
-                'order_id' => $payment->order_id,
-                'method' => $payment->method,
-                'amount' => $payment->amount,
-                'currency' => $payment->currency,
-                'status' => $payment->status,
-            ],
-        ], 201);
-    }
+   
+      
+     
+     public function payment(
+         StorePaymentRequest $request,
+         Order $order,
+         ClickPesaService $clickPesa
+     ): JsonResponse {
+         /*
+          * Customer can only pay for their own order.
+          */
+         if ($order->user_id !== $request->user()->id) {
+             abort(404);
+         }
+     
+         /*
+          * Prevent duplicate active payments.
+          */
+         $existingPayment = $order->payments()
+             ->whereIn('status', [
+                 'pending',
+                 'processing',
+                 'paid',
+             ])
+             ->latest()
+             ->first();
+     
+         if ($existingPayment) {
+             return response()->json([
+                 'success' => false,
+                 'message' => 'A payment already exists for this order.',
+                 'data' => [
+                     'payment' => $existingPayment,
+                 ],
+             ], 422);
+         }
+     
+         /*
+          * Payment is only allowed for pending/confirmed orders.
+          */
+         if (! in_array(
+             $order->status,
+             [
+                 'pending',
+                 'confirmed',
+             ],
+             true
+         )) {
+             return response()->json([
+                 'success' => false,
+                 'message' =>
+                     "Payment cannot be made while the order status is {$order->status}.",
+             ], 422);
+         }
+     
+         /*
+          * Create payment record.
+          */
+         $payment = Payment::create([
+             'order_id' => $order->id,
+             'user_id' => $request->user()->id,
+             'provider' => 'clickpesa',
+             'method' => $request->input('method'),
+             'amount' => $order->total_amount,
+             'currency' => 'TZS',
+             'status' => 'pending',
+         ]);
+     
+         /*
+          * Actually trigger the ClickPesa USSD push / PIN prompt on the
+          * customer's phone. This is the step that was previously missing.
+          */
+         // ClickPesa order references must be alphanumeric only, max 20 chars.
+         // Combine order + payment id to keep each attempt unique even on retry.
+         $orderReference = "o{$order->id}p{$payment->id}";
+     
+         try {
+             $result = $clickPesa->initiateUssdPush([
+                 'amount' => $order->total_amount,
+                 'currency' => 'TZS',
+                 'order_reference' => $orderReference,
+                 'phone_number' => $request->input('phone_number'), // adjust to however the customer's number reaches this request
+             ]);
+     
+             $payment->update([
+                 'status' => 'processing',
+                 'reference' => $orderReference,
+                 'transaction_id' => $result['id'] ?? null,
+             ]);
+         } catch (ClickPesaException $e) {
+             // A specific, user-facing reason from ClickPesa itself — e.g.
+             // "Insufficient funds in your Halopesa account. Please top up and
+             // try again.", "Invalid / unsupported phone number", etc.
+             // Safe to show directly to the customer.
+             $payment->update(['status' => 'failed']);
+     
+             return response()->json([
+                 'success' => false,
+                 'message' => $e->getMessage(),
+             ], 422);
+         } catch (\Throwable $e) {
+             // Unexpected failure (network issue, ClickPesa outage, etc.) —
+             // don't expose internal details to the customer.
+             $payment->update(['status' => 'failed']);
+     
+             return response()->json([
+                 'success' => false,
+                 'message' => 'Could not initiate payment with the provider. Please try again.',
+             ], 502);
+         }
+     
+         return response()->json([
+             'success' => true,
+             'message' => 'Payment initiated. Please check your phone to enter your PIN.',
+             'data' => [
+                 'payment_id' => $payment->id,
+                 'order_id' => $payment->order_id,
+                 'method' => $payment->method,
+                 'amount' => $payment->amount,
+                 'currency' => $payment->currency,
+                 'status' => $payment->status,
+             ],
+         ], 201);
+     }
 }
