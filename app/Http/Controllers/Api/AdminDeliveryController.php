@@ -4,8 +4,9 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreDeliveryRequest;
-use App\Models\Delivery;
 use App\Models\Deliveries_stop;
+use App\Models\Delivery;
+use App\Models\Order;
 use App\Models\Rider;
 use App\Models\SellerOrder;
 use Illuminate\Http\JsonResponse;
@@ -13,8 +14,7 @@ use Illuminate\Support\Facades\DB;
 
 class AdminDeliveryController extends Controller
 {
-
-        public function index(): JsonResponse
+    public function index(): JsonResponse
     {
         $deliveries = Delivery::with([
             'order.user',
@@ -33,13 +33,32 @@ class AdminDeliveryController extends Controller
             'message' => 'Deliveries retrieved successfully.',
             'data' => $deliveries,
         ]);
-    }   
+    }
+
     /**
      * Create a delivery and assign it to a rider.
      */
     public function store(StoreDeliveryRequest $request): JsonResponse
     {
         $validated = $request->validated();
+        $order = Order::find($validated['order_id']);
+        if (! $order) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order not found',
+            ], 404);
+        }
+        $payment = $order->payments()
+            ->where('status', 'paid')
+            ->latest()
+            ->first();
+
+        if (! $payment) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This order can not be assigned for delivery',
+            ]);
+        }
 
         /*
         |--------------------------------------------------------------------------
@@ -72,7 +91,9 @@ class AdminDeliveryController extends Controller
         $sellerOrders = SellerOrder::whereIn(
             'id',
             $validated['seller_order_ids']
-        )->get();
+        )
+            ->where('order_id', $order->id)
+            ->get();
 
         if ($sellerOrders->count() !== count($validated['seller_order_ids'])) {
             return response()->json([

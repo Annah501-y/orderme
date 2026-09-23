@@ -65,7 +65,7 @@ class RiderDeliveryOtpController extends Controller
         $customerStop = $delivery->deliveries_stops()
             ->where('stop_type', 'delivery')
             ->whereNull('seller_order_id')
-            ->first();
+            ->firstOrFail();
 
         if (! $customerStop) {
             return response()->json([

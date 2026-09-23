@@ -2,33 +2,28 @@
 
 use App\Http\Controllers\AdminDashboardController;
 use App\Http\Controllers\AdminSellerRequestController;
-use App\Http\Controllers\Api\AdminRiderController;
-use App\Http\Controllers\Api\AdminUserController;
-use App\Http\Controllers\Api\AdminDeliveryController;
 use App\Http\Controllers\Api\AddressController;
+use App\Http\Controllers\Api\AdminDeliveryController;
 use App\Http\Controllers\Api\AdminProductController;
+use App\Http\Controllers\Api\AdminRiderController;
 use App\Http\Controllers\Api\AdminSettingsController;
-
+use App\Http\Controllers\Api\AdminUserController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\ClickPesaWebhookController;
+use App\Http\Controllers\Api\DeliveryAssignmentController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\ProfileController;
-use App\Http\Controllers\Api\RiderDeliveryOtpController;
-use App\Http\Controllers\Api\RiderOrderController;
-use App\Http\Controllers\Api\RiderLocationController;
 use App\Http\Controllers\Api\RiderDeliveryController;
+use App\Http\Controllers\Api\RiderDeliveryOtpController;
 use App\Http\Controllers\Api\RiderDeliveryStopController;
-use App\Http\Controllers\Api\DeliveryAssignmentController;
+use App\Http\Controllers\Api\RiderLocationController;
+use App\Http\Controllers\Api\RiderOrderController;
 use App\Http\Controllers\Api\WishlistController;
 use App\Http\Controllers\SellerProfileController;
-
 use Illuminate\Support\Facades\Route;
-
-use App\Services\RoutingService;
-
 
 /*
 |--------------------------------------------------------------------------
@@ -41,7 +36,6 @@ Route::prefix('auth')->group(function () {
     // Public authentication
     Route::post('/register', [AuthController::class, 'register']);
 
-    
     Route::post('/login', [AuthController::class, 'login']);
 
     // Authenticated authentication
@@ -55,7 +49,6 @@ Route::prefix('auth')->group(function () {
     });
 });
 
-
 /*
 |--------------------------------------------------------------------------
 | Public Category Routes
@@ -66,7 +59,6 @@ Route::get('/categories', [CategoryController::class, 'index']);
 
 Route::get('/categories/{category}', [CategoryController::class, 'show']);
 
-
 /*
 |--------------------------------------------------------------------------
 | Public Product Routes
@@ -76,8 +68,7 @@ Route::get('/categories/{category}', [CategoryController::class, 'show']);
 Route::get('/products', [ProductController::class, 'index']);
 
 Route::get('/products/{product}', [ProductController::class, 'show']);
-Route::get('/deals',[ProductController::class, 'deals']);
-
+Route::get('/deals', [ProductController::class, 'deals']);
 
 /*
 |--------------------------------------------------------------------------
@@ -86,7 +77,6 @@ Route::get('/deals',[ProductController::class, 'deals']);
 */
 
 Route::middleware('auth:sanctum')->group(function () {
-
 
     /*
     |--------------------------------------------------------------------------
@@ -102,13 +92,13 @@ Route::middleware('auth:sanctum')->group(function () {
         );
         Route::get(
             '/admin/users',
-           [AdminUserController::class, 'index'] );
-        
+            [AdminUserController::class, 'index']);
+
         Route::put(
             '/admin/users/{user}',
             [AdminUserController::class, 'update']
         );
-        
+
         Route::put(
             '/admin/users/{user}/status',
             [AdminUserController::class, 'updateStatus']
@@ -118,52 +108,47 @@ Route::middleware('auth:sanctum')->group(function () {
             '/admin/products',
             [AdminProductController::class, 'index']
         );
-        
+
         Route::get(
             '/admin/products/{product}',
             [AdminProductController::class, 'show']
         );
-        
+
         Route::put(
             '/admin/products/{product}/status',
             [AdminProductController::class, 'updateStatus']
         );
-        Route::post('/admin/riders',[AdminRiderController::class, 'store'])
-        ->middleware('permission:riders.create')
-        ->name('admin.riders.store');
-        
+        Route::post('/admin/riders', [AdminRiderController::class, 'store'])
+            ->middleware('permission:riders.create')
+            ->name('admin.riders.store');
+
         Route::get('/admin/deliveries', [AdminDeliveryController::class, 'index'])
-        ->middleware('permission:deliveries.assign')
-        ->name('admin.deliveries.index');
+            ->middleware('permission:deliveries.assign')
+            ->name('admin.deliveries.index');
         Route::post('/admin/deliveries', [AdminDeliveryController::class, 'store'])
-        ->middleware('permission:deliveries.assign')
-        ->name('admin.deliveries.store');
+            ->middleware('permission:deliveries.assign')
+            ->name('admin.deliveries.store');
 
+        Route::get('/admin/settings', [AdminSettingsController::class, 'show'])
+            ->middleware('permission:users.view')
+            ->name('admin.settings.show');
 
+        Route::put('/admin/settings/profile', [AdminSettingsController::class, 'updateProfile'])
+            ->middleware('permission:users.update')
+            ->name('admin.settings.profile');
 
-            Route::get('/admin/settings', [AdminSettingsController::class, 'show'])
-                ->middleware('permission:users.view')
-                ->name('admin.settings.show');
-        
-            Route::put('/admin/settings/profile', [AdminSettingsController::class, 'updateProfile'])
-                ->middleware('permission:users.update')
-                ->name('admin.settings.profile');
-            
-            Route::post('/admin/settings/profile-photo',[AdminSettingsController::class, 'updateProfilePhoto'])
-                ->middleware('permission:users.update')
-                ->name('admin.settings.profile-photo');
-            Route::put('/admin/settings/password', [AdminSettingsController::class, 'updatePassword'])
-                ->middleware('permission:users.update')
-                ->name('admin.settings.password');
-        
-            Route::post('/admin/settings/logout-all', [AdminSettingsController::class, 'logoutAll'])
-                ->middleware('permission:users.update')
-                ->name('admin.settings.logout-all');
-        
-        
+        Route::post('/admin/settings/profile-photo', [AdminSettingsController::class, 'updateProfilePhoto'])
+            ->middleware('permission:users.update')
+            ->name('admin.settings.profile-photo');
+        Route::put('/admin/settings/password', [AdminSettingsController::class, 'updatePassword'])
+            ->middleware('permission:users.update')
+            ->name('admin.settings.password');
+
+        Route::post('/admin/settings/logout-all', [AdminSettingsController::class, 'logoutAll'])
+            ->middleware('permission:users.update')
+            ->name('admin.settings.logout-all');
 
     });
-
 
     /*
     |--------------------------------------------------------------------------
@@ -180,7 +165,6 @@ Route::middleware('auth:sanctum')->group(function () {
         '/seller/profile',
         [SellerProfileController::class, 'show']
     )->name('seller.profile.show');
-
 
     /*
     |--------------------------------------------------------------------------
@@ -216,14 +200,13 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:sellers.reject')
         ->name('admin.seller-requests.reject');
 
-
     /*
     |--------------------------------------------------------------------------
     | Category Management
     |--------------------------------------------------------------------------
     */
     Route::get('/admin/categories',
-    [CategoryController::class, 'adminIndex']);
+        [CategoryController::class, 'adminIndex']);
 
     Route::post(
         '/categories',
@@ -239,7 +222,6 @@ Route::middleware('auth:sanctum')->group(function () {
         '/categories/{category}',
         [CategoryController::class, 'destroy']
     )->middleware('permission:categories.delete');
-
 
     /*
     |--------------------------------------------------------------------------
@@ -283,7 +265,6 @@ Route::middleware('auth:sanctum')->group(function () {
         [ProductController::class, 'updateStock']
     )->middleware('permission:products.manage_stock');
 
-
     /*
     |--------------------------------------------------------------------------
     | Cart
@@ -315,7 +296,6 @@ Route::middleware('auth:sanctum')->group(function () {
         [CartController::class, 'clear']
     );
 
-
     /*
     |--------------------------------------------------------------------------
     | Customer Orders
@@ -328,13 +308,12 @@ Route::middleware('auth:sanctum')->group(function () {
     //     [OrderController::class, 'checkout']
     // );
 
-
     Route::post(
         '/orders/checkout',
         [OrderController::class, 'checkout']
     );
     Route::post('/orders/calculate-delivery',
-    [OrderController::class, 'calculateDeliveryFee']);
+        [OrderController::class, 'calculateDeliveryFee']);
 
     // Customer's own orders
     Route::get(
@@ -360,7 +339,6 @@ Route::middleware('auth:sanctum')->group(function () {
         [OrderController::class, 'payment']
     )->name('orders.payment');
 
-
     /*
     |--------------------------------------------------------------------------
     | Seller Orders
@@ -385,7 +363,6 @@ Route::middleware('auth:sanctum')->group(function () {
         [OrderController::class, 'sellerUpdateStatus']
     )->middleware('permission:orders.update');
 
-
     /*
     |--------------------------------------------------------------------------
     | Admin Orders
@@ -409,7 +386,6 @@ Route::middleware('auth:sanctum')->group(function () {
         '/admin/orders/{order}/status',
         [OrderController::class, 'adminUpdateStatus']
     )->middleware('permission:orders.update');
-
 
     /*
     |--------------------------------------------------------------------------
@@ -436,7 +412,6 @@ Route::middleware('auth:sanctum')->group(function () {
         '/wishlist/{product}/check',
         [WishlistController::class, 'check']
     );
-
 
     /*
     |--------------------------------------------------------------------------
@@ -474,7 +449,6 @@ Route::middleware('auth:sanctum')->group(function () {
         [AddressController::class, 'setDefault']
     );
 
-
     /*
     |--------------------------------------------------------------------------
     | Profile
@@ -491,47 +465,42 @@ Route::middleware('auth:sanctum')->group(function () {
         [ProfileController::class, 'update']
     );
 
-    Route::get('/rider/orders',[RiderOrderController::class, 'index'])
-    ->middleware('permission:deliveries.view')
-    ->name('riders.orders.index');
+    Route::get('/rider/orders', [RiderOrderController::class, 'index'])
+        ->middleware('permission:deliveries.view')
+        ->name('riders.orders.index');
 
     Route::put('/rider/location', [RiderLocationController::class, 'update'])
-    ->middleware('permission:deliveries.update')
-    ->name('rider.location.update');
+        ->middleware('permission:deliveries.update')
+        ->name('rider.location.update');
 
     Route::post(
         '/orders/{orderId}/assign-delivery',
         [DeliveryAssignmentController::class, 'assign']
     )->name('orders.assign-delivery');
-    
 
-Route::get(
-    '/rider/deliveries',
-    [RiderDeliveryController::class, 'index']
-)->middleware('permission:deliveries.view')
- ->name('rider.deliveries.index');
- Route::put('/rider/deliveries/{delivery}', [RiderDeliveryController::class,'update'])
- ->middleware('permission:deliveries.update')
- ->name('rider.deliveries.update');
+    Route::get(
+        '/rider/deliveries',
+        [RiderDeliveryController::class, 'index']
+    )->middleware('permission:deliveries.view')
+        ->name('rider.deliveries.index');
+    Route::put('/rider/deliveries/{delivery}', [RiderDeliveryController::class, 'update'])
+        ->middleware('permission:deliveries.update')
+        ->name('rider.deliveries.update');
 
- Route::put('/rider/delivery-stops/{stop}', [RiderDeliveryStopController::class, 'update'])
-    ->middleware('permission:deliveries.update')
-    ->name('rider.delivery-stops.update');
- Route::post('/rider/deliveries/{delivery}/otp', [RiderDeliveryOtpController::class, 'generate'] )
-    ->middleware('permission:deliveries.update')
-    ->name('rider.deliveries.otp.generate');
+    Route::put('/rider/delivery-stops/{stop}', [RiderDeliveryStopController::class, 'update'])
+        ->middleware('permission:deliveries.update')
+        ->name('rider.delivery-stops.update');
+    Route::post('/rider/deliveries/{delivery}/otp', [RiderDeliveryOtpController::class, 'generate'])
+        ->middleware('permission:deliveries.update')
+        ->name('rider.deliveries.otp.generate');
 
-Route::post('/rider/deliveries/{delivery}/otp/verify',[RiderDeliveryOtpController::class, 'verify'])
-    ->middleware('permission:deliveries.update')
-    ->name('rider.deliveries.otp.verify');
+    Route::post('/rider/deliveries/{delivery}/otp/verify', [RiderDeliveryOtpController::class, 'verify'])
+        ->middleware('permission:deliveries.update')
+        ->name('rider.deliveries.otp.verify');
 
-
-Route::post('/webhooks/clickpesa', [ClickPesaWebhookController::class, 'handle']);
-    
 });
 
-Route::post('/rider/activate',[AdminRiderController::class, 'activate'])
-     ->name('rider.activate');
+Route::post('/webhooks/clickpesa', [ClickPesaWebhookController::class, 'handle']);
 
-    
-    
+Route::post('/rider/activate', [AdminRiderController::class, 'activate'])
+    ->name('rider.activate');

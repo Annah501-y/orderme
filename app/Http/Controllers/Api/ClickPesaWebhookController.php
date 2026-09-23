@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Payment;
+use App\Services\OrderFinancialService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class ClickPesaWebhookController extends Controller
@@ -19,50 +21,102 @@ class ClickPesaWebhookController extends Controller
      * Settings -> Payments. While testing with ngrok, this must be your
      * public ngrok URL + this route's path.
      */
-    public function handle(Request $request): JsonResponse
-    {
+    public function handle(
+        Request $request,
+        OrderFinancialService $orderFinancialService
+    ): JsonResponse {
         $payload = $request->all();
+        $event = strtoupper((string) ($payload['event'] ?? $payload['eventType'] ?? ''));
+
+        if (! in_array($event, ['PAYMENT RECEIVED', 'PAYMENT FAILED'], true)) {
+            Log::warning('ClickPesa webhook: unsupported event', $payload);
+
+            return response()->json(['status' => 'ignored'], 200);
+        }
 
         Log::info('ClickPesa webhook received', $payload);
 
-        // TODO: confirm the exact payload shape ClickPesa sends against
-        // their docs/dashboard sample payloads — field names below
-        // (orderReference, status, id) are the commonly documented ones
-        // but verify before relying on them in production.
-        $orderReference = $payload['orderReference'] ?? null;
-        $status = $payload['status'] ?? null; // e.g. SUCCESS, FAILED, PROCESSING
-        $transactionId = $payload['id'] ?? null;
+        $data = $payload['data'] ?? [];
+
+        if (! is_array($data)) {
+            Log::warning('ClickPesa webhook data must be an object', $payload);
+
+            return response()->json(['status' => 'ignored'], 200);
+        }
+
+        $orderReference = $data['orderReference'] ?? null;
+        $status = $data['status'] ?? null;
+        $transactionId = $data['id'] ?? null;
 
         if (! $orderReference) {
             Log::warning('ClickPesa webhook missing orderReference', $payload);
+
             return response()->json(['status' => 'ignored'], 200);
         }
 
         // Matches the `reference` column set in OrderController::payment()
         // when the USSD push was initiated (order{id}payment{id}).
-        $payment = Payment::where('reference', $orderReference)
-            ->latest()
-            ->first();
+        $paymentFound = DB::transaction(function () use (
+            $orderReference,
+            $status,
+            $transactionId,
+            $orderFinancialService,
+            $event,
+            $data
+        ): bool {
+            $payment = Payment::where('reference', $orderReference)
+                ->latest()
+                ->lockForUpdate()
+                ->first();
 
-        if (! $payment) {
-            Log::warning('ClickPesa webhook: no matching payment found', $payload);
+            if (! $payment) {
+                return false;
+            }
+
+            $newStatus = match (true) {
+                $event === 'PAYMENT RECEIVED'
+                    && strtoupper((string) $status) === 'SUCCESS' => 'paid',
+                $event === 'PAYMENT FAILED'
+                    && strtoupper((string) $status) === 'FAILED' => 'failed',
+                default => $payment->status,
+            };
+            if ($newStatus === 'paid') {
+                $reportedAmount = $data['collectedAmount'] ?? null;
+                $reportedCurrency = strtoupper((string) ($data['collectedCurrency'] ?? ''));
+
+                if (
+                    ! is_numeric($reportedAmount)
+                    || number_format((float) $reportedAmount, 2, '.', '')
+                        !== number_format((float) $payment->amount, 2, '.', '')
+                    || $reportedCurrency !== strtoupper((string) $payment->currency)
+                ) {
+                    return false;
+                }
+            }
+
+            $becamePaid = $payment->status !== 'paid' && $newStatus === 'paid';
+
+            $payment->update([
+                'status' => $newStatus,
+                'transaction_id' => $transactionId,
+                'paid_at' => $newStatus === 'paid' ? ($payment->paid_at ?? now()) : $payment->paid_at,
+            ]);
+
+            if ($becamePaid) {
+                $orderFinancialService->calculate($payment->order);
+            }
+
+            return true;
+        });
+
+        if (! $paymentFound) {
+            Log::warning(
+                'ClickPesa webhook: payment not found or payment validation failed',
+                $payload
+            );
+
             return response()->json(['status' => 'ignored'], 200);
         }
-
-        $newStatus = match (strtoupper((string) $status)) {
-            'SUCCESS', 'PAID', 'COMPLETED' => 'paid',
-            'FAILED', 'CANCELLED' => 'failed',
-            default => $payment->status,
-        };
-
-        $payment->update([
-            'status' => $newStatus,
-            'transaction_id' => $transactionId,
-            'paid_at' => $newStatus === 'paid' ? now() : $payment->paid_at,
-        ]);
-
-        // Optionally update the related Order's status here too, e.g.
-        // mark it as confirmed once payment status is 'paid'.
 
         return response()->json(['status' => 'received'], 200);
     }

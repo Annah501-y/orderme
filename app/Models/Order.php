@@ -1,12 +1,11 @@
 <?php
 
 namespace App\Models;
-use App\Models\Payment;
-use App\Models\Address;
-use App\Models\SellerOrder;
+
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Order extends Model
 {
@@ -18,7 +17,7 @@ class Order extends Model
         'delivery_fee',
         'vehicle_type',
         'total_amount',
-       
+
     ];
 
     protected $casts = [
@@ -34,20 +33,29 @@ class Order extends Model
     {
         return $this->hasMany(OrderItem::class);
     }
+
     public function sellerorders(): HasMany
     {
         return $this->hasMany(SellerOrder::class);
     }
+
     public function payments(): HasMany
-{
-    return $this->hasMany(Payment::class);
-}
-public function deliveries():HasMany
-{
-    return $this->hasMany(Delivery::class);
-}
-public function address():BelongsTo
-{
-    return $this->belongsTo(Address::class);
-}
+    {
+        return $this->hasMany(Payment::class);
+    }
+
+    public function deliveries(): HasMany
+    {
+        return $this->hasMany(Delivery::class);
+    }
+
+    public function address(): BelongsTo
+    {
+        return $this->belongsTo(Address::class);
+    }
+
+    public function financials(): HasOne
+    {
+        return $this->hasOne(OrderFinancial::class);
+    }
 }
