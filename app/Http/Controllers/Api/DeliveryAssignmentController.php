@@ -20,13 +20,10 @@ class DeliveryAssignmentController extends Controller
     ): JsonResponse {
         $user = $request->user();
 
-        if (
-            ! $user->hasRole('admin') &&
-            ! $user->hasRole('seller')
-        ) {
+        if (! $user->hasRole('admin')) {
             return response()->json([
                 'success' => false,
-                'message' => 'You are not authorized to assign deliveries.',
+                'message' => 'Only admins can assign deliveries.',
             ], 403);
         }
 

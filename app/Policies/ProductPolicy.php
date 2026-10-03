@@ -28,7 +28,8 @@ class ProductPolicy
      */
     public function create(User $user): bool
     {
-        return $user->can('products.create');
+        return $user->hasRole('admin')
+            || ($user->isApprovedSeller() && $user->can('products.create'));
     }
 
     /**
@@ -42,7 +43,10 @@ class ProductPolicy
         return $user->can('products.update')
             && (
                 $user->hasRole('admin')
-                || $product->seller_id === $user->id
+                || (
+                    $user->isApprovedSeller()
+                    && $product->seller_id === $user->id
+                )
             );
     }
 
@@ -57,7 +61,10 @@ class ProductPolicy
         return $user->can('products.delete')
             && (
                 $user->hasRole('admin')
-                || $product->seller_id === $user->id
+                || (
+                    $user->isApprovedSeller()
+                    && $product->seller_id === $user->id
+                )
             );
     }
 

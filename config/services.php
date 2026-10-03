@@ -1,7 +1,5 @@
 <?php
 
-use Illuminate\Support\Env;
-
 return [
 
     /*
@@ -33,23 +31,26 @@ return [
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),
-        'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
+            'channel' => env('SLACK_BOT_USER_DEFAULT_CHANNEL'),
+        ],
     ],
-],
-'clickpesa' => [
-    'base_url' => env('CLICKPESA_BASE_URL', 'https://api.clickpesa.com'),
-    'client_id' => env('CLICKPESA_CLIENT_ID'),
-    'api_key' => env('CLICKPESA_API_KEY'),
-],
+    'clickpesa' => [
+        'base_url' => env('CLICKPESA_BASE_URL', 'https://api.clickpesa.com'),
+        'client_id' => env('CLICKPESA_CLIENT_ID'),
+        'api_key' => env('CLICKPESA_API_KEY'),
+    ],
 
-'beem'=>[
-    'api_key'=>
-    env('BEEM_API_KEY'),
-    'secret_key'=>
-    env('BEEM_SECRET_KEY'),
-    'sender_id'=>
-    env('BEEM_SENDER_ID', 'OrderMe'),
-],
+    'beem' => [
+        'api_key' => env('BEEM_API_KEY'),
+        'secret_key' => env('BEEM_SECRET_KEY'),
+        'sender_id' => env('BEEM_SENDER_ID', 'OrderMe'),
+    ],
 
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => env('GOOGLE_REDIRECT_URI'),
+        'maps_api_key' => env('GOOGLE_MAPS_API_KEY'),
+    ],
 
 ];

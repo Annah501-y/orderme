@@ -13,7 +13,7 @@ class Authorization
     ): bool {
         return $user->hasRole('admin')
             || (
-                $user->hasRole('seller')
+                $user->isApprovedSeller()
                 && $product->seller_id === $user->id
             );
     }

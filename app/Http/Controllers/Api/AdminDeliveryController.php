@@ -14,6 +14,30 @@ use Illuminate\Support\Facades\DB;
 
 class AdminDeliveryController extends Controller
 {
+    /**
+     * List ready seller orders that have not been assigned to a rider.
+     */
+    public function readyForAssignment(): JsonResponse
+    {
+        $sellerOrders = SellerOrder::query()
+            ->with([
+                'seller.addresses' => function ($query): void {
+                    $query->where('is_default', true)->limit(1);
+                },
+                'order.user',
+            ])
+            ->where('status', 'ready_for_delivery')
+            ->whereDoesntHave('deliveries_stops')
+            ->oldest()
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Ready seller orders retrieved successfully.',
+            'data' => $sellerOrders,
+        ]);
+    }
+
     public function index(): JsonResponse
     {
         $deliveries = Delivery::with([

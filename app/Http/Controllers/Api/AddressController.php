@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreAddressRequest;
 use App\Models\Address;
-use Illuminate\Http\Request;
+use App\Services\AddressGeocodingService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use RuntimeException;
 
 class AddressController extends Controller
 {
@@ -23,9 +25,30 @@ class AddressController extends Controller
         ]);
     }
 
-    public function store(StoreAddressRequest $request): JsonResponse
-    {
+    public function store(
+        StoreAddressRequest $request,
+        AddressGeocodingService $geocodingService
+    ): JsonResponse {
         $user = $request->user();
+        $validated = $request->validated();
+
+        try {
+            $coordinates = $geocodingService->geocode($validated);
+        } catch (RuntimeException $exception) {
+            report($exception);
+
+            return response()->json([
+                'success' => false,
+                'message' => $exception->getMessage(),
+            ], 503);
+        }
+
+        if (! $coordinates) {
+            return response()->json([
+                'success' => false,
+                'message' => 'We could not find that address. Please check it and try again.',
+            ], 422);
+        }
 
         $isDefault = $request->boolean('is_default');
 
@@ -42,14 +65,14 @@ class AddressController extends Controller
         }
 
         $address = $user->addresses()->create([
-            'address_line' => $request->address_line,
-            'district' => $request->district,
-            'city' => $request->city,
-            'region' => $request->region,
-            'country' => $request->country,
-            'latitude' => $request->latitude,
-            'longitude' => $request->longitude,
-            'place_id' => $request->place_id,
+            'address_line' => $validated['address_line'],
+            'district' => $validated['district'],
+            'city' => $validated['city'],
+            'region' => $validated['region'],
+            'country' => $validated['country'],
+            'latitude' => $coordinates['latitude'],
+            'longitude' => $coordinates['longitude'],
+            'place_id' => $coordinates['place_id'],
             'is_default' => $isDefault,
         ]);
 
@@ -74,10 +97,31 @@ class AddressController extends Controller
 
     public function update(
         StoreAddressRequest $request,
-        Address $address
+        Address $address,
+        AddressGeocodingService $geocodingService
     ): JsonResponse {
         if ($address->user_id !== $request->user()->id) {
             abort(404);
+        }
+
+        $validated = $request->validated();
+
+        try {
+            $coordinates = $geocodingService->geocode($validated);
+        } catch (RuntimeException $exception) {
+            report($exception);
+
+            return response()->json([
+                'success' => false,
+                'message' => $exception->getMessage(),
+            ], 503);
+        }
+
+        if (! $coordinates) {
+            return response()->json([
+                'success' => false,
+                'message' => 'We could not find that address. Please check it and try again.',
+            ], 422);
         }
 
         $isDefault = $request->boolean('is_default');
@@ -91,14 +135,14 @@ class AddressController extends Controller
         }
 
         $address->update([
-            'address_line' => $request->address_line,
-            'district' => $request->district,
-            'city' => $request->city,
-            'region' => $request->region,
-            'country' => $request->country,
-            'latitude' => $request->latitude,
-            'longitude' => $request->longitude,
-            'place_id' => $request->place_id,
+            'address_line' => $validated['address_line'],
+            'district' => $validated['district'],
+            'city' => $validated['city'],
+            'region' => $validated['region'],
+            'country' => $validated['country'],
+            'latitude' => $coordinates['latitude'],
+            'longitude' => $coordinates['longitude'],
+            'place_id' => $coordinates['place_id'],
             'is_default' => $isDefault,
         ]);
 

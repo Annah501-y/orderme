@@ -12,10 +12,14 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CartController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\ClickPesaWebhookController;
+use App\Http\Controllers\Api\CustomerFeedbackController;
 use App\Http\Controllers\Api\DeliveryAssignmentController;
+use App\Http\Controllers\Api\GoogleAuthController;
 use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\PayoutDestinationController;
 use App\Http\Controllers\Api\ProductController;
 use App\Http\Controllers\Api\ProfileController;
+use App\Http\Controllers\Api\RiderApplicationController;
 use App\Http\Controllers\Api\RiderDeliveryController;
 use App\Http\Controllers\Api\RiderDeliveryOtpController;
 use App\Http\Controllers\Api\RiderDeliveryStopController;
@@ -36,6 +40,9 @@ Route::prefix('auth')->group(function () {
     // Public authentication
     Route::post('/register', [AuthController::class, 'register']);
 
+    Route::post('/google/exchange', [GoogleAuthController::class, 'exchange'])
+        ->middleware('throttle:10,1');
+
     Route::post('/login', [AuthController::class, 'login']);
 
     // Authenticated authentication
@@ -48,6 +55,10 @@ Route::prefix('auth')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
     });
 });
+
+Route::post('/rider/applications', [RiderApplicationController::class, 'store'])
+    ->middleware('throttle:10,1')
+    ->name('rider.applications.submit');
 
 /*
 |--------------------------------------------------------------------------
@@ -121,7 +132,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/admin/riders', [AdminRiderController::class, 'store'])
             ->middleware('permission:riders.create')
             ->name('admin.riders.store');
+        Route::get('/admin/rider-applications', [AdminRiderController::class, 'applications'])
+            ->middleware('permission:riders.view')
+            ->name('admin.rider-applications.index');
+        Route::post('/admin/rider-applications/{riderApplication}/invite', [AdminRiderController::class, 'inviteApplicant'])
+            ->middleware('permission:riders.create')
+            ->name('admin.rider-applications.invite');
 
+        Route::get('/admin/deliveries/ready', [AdminDeliveryController::class, 'readyForAssignment'])
+            ->middleware('permission:deliveries.assign')
+            ->name('admin.deliveries.ready');
         Route::get('/admin/deliveries', [AdminDeliveryController::class, 'index'])
             ->middleware('permission:deliveries.assign')
             ->name('admin.deliveries.index');
@@ -147,6 +167,25 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/admin/settings/logout-all', [AdminSettingsController::class, 'logoutAll'])
             ->middleware('permission:users.update')
             ->name('admin.settings.logout-all');
+            Route::get(
+                '/admin/reviews',
+                [CustomerFeedbackController::class, 'reviewsForModeration']
+            );
+            
+            Route::patch(
+                '/admin/reviews/{review}',
+                [CustomerFeedbackController::class, 'updateReviewStatus']
+            );
+            
+            Route::get(
+                '/admin/feedback/comments',
+                [CustomerFeedbackController::class, 'commentsForModeration']
+            );
+            
+            Route::patch(
+                '/admin/feedback/comments/{feedbackComment}',
+                [CustomerFeedbackController::class, 'updateCommentStatus']
+            );
 
     });
 
@@ -185,6 +224,13 @@ Route::middleware('auth:sanctum')->group(function () {
     )
         ->middleware('permission:sellers.view')
         ->name('admin.seller-requests.show');
+
+    Route::get(
+        '/admin/seller-requests/{sellerProfile}/business-license',
+        [AdminSellerRequestController::class, 'downloadBusinessLicense']
+    )
+        ->middleware('permission:sellers.view')
+        ->name('admin.seller-requests.business-license');
 
     Route::patch(
         '/admin/seller-requests/{sellerProfile}/approve',
@@ -233,37 +279,37 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get(
         '/seller/products',
         [ProductController::class, 'sellerProducts']
-    )->middleware('permission:products.view');
+    )->middleware(['permission:products.view', 'seller.approved']);
 
     // Create product
     Route::post(
         '/products',
         [ProductController::class, 'store']
-    )->middleware('permission:products.create');
+    )->middleware(['permission:products.create', 'seller.approved']);
 
     // Update product
     Route::put(
         '/products/{product}',
         [ProductController::class, 'update']
-    )->middleware('permission:products.update');
+    )->middleware(['permission:products.update', 'seller.approved']);
 
     // Delete product
     Route::delete(
         '/products/{product}',
         [ProductController::class, 'destroy']
-    )->middleware('permission:products.delete');
+    )->middleware(['permission:products.delete', 'seller.approved']);
 
     // Activate / deactivate product
     Route::patch(
         '/products/{product}/status',
         [ProductController::class, 'updateStatus']
-    )->middleware('permission:products.activate');
+    )->middleware(['permission:products.activate', 'seller.approved']);
 
     // Manage product stock
     Route::patch(
         '/products/{product}/stock',
         [ProductController::class, 'updateStock']
-    )->middleware('permission:products.manage_stock');
+    )->middleware(['permission:products.manage_stock', 'seller.approved']);
 
     /*
     |--------------------------------------------------------------------------
@@ -349,19 +395,19 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get(
         '/seller/orders',
         [OrderController::class, 'sellerOrders']
-    )->middleware('permission:orders.view');
+    )->middleware(['permission:orders.view', 'seller.approved']);
 
     // Seller order details
     Route::get(
         '/seller/orders/{sellerOrder}',
         [OrderController::class, 'sellerOrder']
-    )->middleware('permission:orders.view');
+    )->middleware(['permission:orders.view', 'seller.approved']);
 
     // Seller updates own seller-order status
     Route::put(
         '/seller/orders/{sellerOrder}/status',
         [OrderController::class, 'sellerUpdateStatus']
-    )->middleware('permission:orders.update');
+    )->middleware(['permission:orders.update', 'seller.approved']);
 
     /*
     |--------------------------------------------------------------------------
@@ -476,7 +522,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post(
         '/orders/{orderId}/assign-delivery',
         [DeliveryAssignmentController::class, 'assign']
-    )->name('orders.assign-delivery');
+    )->middleware('permission:deliveries.assign')
+        ->name('orders.assign-delivery');
 
     Route::get(
         '/rider/deliveries',
@@ -498,9 +545,40 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:deliveries.update')
         ->name('rider.deliveries.otp.verify');
 
+    Route::put(
+        '/payout-destination', [PayoutDestinationController::class, 'store']
+    )->name('payout-destination.update');
+
+    Route::post(
+        '/payout-destination/verification/send', [PayoutDestinationController::class, 'sendVerification']
+    )->middleware('throttle:3,1')->name('payout-destination.verification.send');
+
+    Route::post(
+        '/payout-destination/verification/verify', [PayoutDestinationController::class, 'verify']
+    )->middleware('throttle:6,1')->name('payout-destination.verification.verify');
+
+    Route::post(
+        '/reviews',
+        [CustomerFeedbackController::class, 'storeReview']
+    );
+    
+    Route::post(
+        '/feedback/comments',
+        [CustomerFeedbackController::class, 'storeComment']
+    );
+
 });
 
 Route::post('/webhooks/clickpesa', [ClickPesaWebhookController::class, 'handle']);
 
 Route::post('/rider/activate', [AdminRiderController::class, 'activate'])
     ->name('rider.activate');
+    Route::get(
+        '/products/{product}/reviews',
+        [CustomerFeedbackController::class, 'approvedReviews']
+    );
+    
+    Route::get(
+        '/faqs/{faqId}/comments',
+        [CustomerFeedbackController::class, 'approvedFaqComments']
+    );

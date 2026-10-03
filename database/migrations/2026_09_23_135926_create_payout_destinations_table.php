@@ -6,9 +6,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::create('payout_destinations', function (Blueprint $table): void {
@@ -22,12 +19,9 @@ return new class extends Migration
             $table->timestamp('verified_at')->nullable();
             $table->timestamps();
         });
-        
+
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('payout_destinations');

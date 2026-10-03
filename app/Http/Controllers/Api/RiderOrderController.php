@@ -63,28 +63,7 @@ class RiderOrderController extends Controller
 
             $order = $delivery->order;
             $customer = $order?->user;
-
-            /*
-            |--------------------------------------------------------------------------
-            | Find customer's default delivery address
-            |--------------------------------------------------------------------------
-            */
-            $customerAddress = null;
-
-            if ($customer) {
-                $customerAddress = $customer->addresses()
-                    ->where('is_default', true)
-                    ->first();
-
-                /*
-                | If no default address exists, use the latest address.
-                */
-                if (! $customerAddress) {
-                    $customerAddress = $customer->addresses()
-                        ->latest()
-                        ->first();
-                }
-            }
+            $customerAddress = $order?->address;
 
             /*
             |--------------------------------------------------------------------------
@@ -154,14 +133,33 @@ class RiderOrderController extends Controller
                 })
                 ->values();
 
+            $stops = $stops->map(function (array $stop, int $index) use ($stops): array {
+                $origin = $index > 0
+                    ? $stops[$index - 1]['location']
+                    : null;
+
+                $stop['location']['navigation_url'] = $this->navigationUrl(
+                    $origin,
+                    $stop['location']
+                );
+
+                return $stop;
+            });
+
             /*
             |--------------------------------------------------------------------------
             | Add customer as the final delivery destination
             |--------------------------------------------------------------------------
             */
+            $deliverySequence = $stops->count() + 1;
+            $deliveryLocation = $customerAddress ? [
+                'latitude' => $customerAddress->latitude,
+                'longitude' => $customerAddress->longitude,
+            ] : null;
+
             $stops->push([
                 'stop_id' => null,
-                'sequence' => $stops->count() + 1,
+                'sequence' => $deliverySequence,
                 'type' => 'delivery',
                 'status' => 'pending',
 
@@ -193,6 +191,10 @@ class RiderOrderController extends Controller
                     'longitude' => $customerAddress->longitude,
 
                     'place_id' => $customerAddress->place_id,
+                    'navigation_url' => $this->navigationUrl(
+                        $stops->last()['location'] ?? null,
+                        $deliveryLocation
+                    ),
                 ] : null,
 
                 'items' => [],
@@ -247,5 +249,37 @@ class RiderOrderController extends Controller
             'success' => true,
             'data' => $data,
         ]);
+    }
+
+    /**
+     * Build a Google Maps directions link from the previous stop to this stop.
+     *
+     * @param  array<string, mixed>|null  $origin
+     * @param  array{latitude: mixed, longitude: mixed}|null  $destination
+     */
+    private function navigationUrl(?array $origin, ?array $destination): ?string
+    {
+        if (
+            ! $destination ||
+            $destination['latitude'] === null ||
+            $destination['longitude'] === null
+        ) {
+            return null;
+        }
+
+        $query = [
+            'api' => 1,
+            'destination' => $destination['latitude'].','.$destination['longitude'],
+            'travelmode' => 'driving',
+        ];
+
+        if (
+            $origin &&
+            isset($origin['latitude'], $origin['longitude'])
+        ) {
+            $query['origin'] = $origin['latitude'].','.$origin['longitude'];
+        }
+
+        return 'https://www.google.com/maps/dir/?'.http_build_query($query);
     }
 }

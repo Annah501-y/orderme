@@ -4,34 +4,37 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class StoreRiderRequest extends FormRequest
+class SubmitRiderApplicationRequest extends FormRequest
 {
+    /**
+     * Determine if the user is authorized to make this request.
+     */
     public function authorize(): bool
     {
-        return $this->user()?->hasRole('admin') ?? false;
+        return true;
     }
 
+    /**
+     * Get the validation rules that apply to the request.
+     *
+     * @return array<string, array<int, string>>
+     */
     public function rules(): array
     {
         return [
-            'name' => [
-                'required',
-                'string',
-                'max:255',
-            ],
-
+            'name' => ['required', 'string', 'min:2', 'max:100'],
             'email' => [
                 'required',
                 'email',
                 'max:255',
+                'unique:rider_applications,email',
                 'unique:users,email',
             ],
-
             'phone' => [
                 'required',
                 'string',
-                'max:20',
                 'regex:/^[67]\d{8}$/',
+                'unique:rider_applications,phone',
                 'unique:users,phone',
             ],
         ];

@@ -17,8 +17,8 @@
     </p>
 
     <p>
-        To activate your rider account, click the button below and
-        create your password.
+        To activate your rider account, click the button below, create
+        your password, and choose how you would like to receive rider payouts.
     </p>
 
     <p>

@@ -15,9 +15,24 @@ class SellerProfile extends Model
         'store_name',
         'store_description',
         'phone',
+        'nida_number',
+        'tin_reference',
+        'business_license_path',
         'status',
         'rejection_reason',
     ];
+
+    protected $hidden = [
+        'business_license_path',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'nida_number' => 'encrypted',
+            'tin_reference' => 'encrypted',
+        ];
+    }
 
     /**
      * The user who owns this seller profile.

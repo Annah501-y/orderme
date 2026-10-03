@@ -6,43 +6,45 @@ use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
-class UpdateProfileRequest extends FormRequest {
+class UpdateProfileRequest extends FormRequest
+{
     /**
-    * Determine if the user is authorized to make this request.
-    */
-
-    public function authorize(): bool {
+     * Determine if the user is authorized to make this request.
+     */
+    public function authorize(): bool
+    {
         return $this->user() !== null;
     }
 
     /**
-    * Get the validation rules that apply to the request.
-    *
-    * @return array<string, ValidationRule|array<mixed>|string>
-    */
-
-    public function rules(): array {
+     * Get the validation rules that apply to the request.
+     *
+     * @return array<string, ValidationRule|array<mixed>|string>
+     */
+    public function rules(): array
+    {
         return [
-            'name'=>[
+            'name' => [
                 'sometimes',
                 'required',
                 'string',
                 'min:2',
-                'max:100'
+                'max:100',
             ],
-            'email'=>[
+            'email' => [
                 'sometimes',
                 'required',
                 'string',
                 'email',
                 'max:255',
-                Rule::unique( 'users', 'email' )->ignore( $this->user()->id ),
+                Rule::unique('users', 'email')->ignore($this->user()->id),
             ],
-            'phone'=>[
+            'phone' => [
                 'sometimes',
                 'required',
                 'string',
-                Rule::unique( 'users', 'phone' )->ignore( $this->user()->id ),
+                'regex:/^[67]\d{8}$/',
+                Rule::unique('users', 'phone')->ignore($this->user()->id),
             ],
             'profile_photo' => [
                 'sometimes',
@@ -54,7 +56,8 @@ class UpdateProfileRequest extends FormRequest {
         ];
     }
 
-    public function messages(): array {
+    public function messages(): array
+    {
         return [
             'name.required' => 'Please enter your full name.',
             'name.min' => 'Your name must be at least 2 characters.',
@@ -64,9 +67,8 @@ class UpdateProfileRequest extends FormRequest {
             'email.unique' => 'This email address is already registered.',
 
             'phone.required' => 'Please enter your Tanzanian phone number.',
-            'phone.regex' => 'The phone number must be a valid Tanzanian phone number starting with +255 followed by 6 or 7.',
+            'phone.regex' => 'Enter 9 digits starting with 6 or 7.',
             'phone.unique' => 'This phone number is already registered.',
         ];
     }
 }
-

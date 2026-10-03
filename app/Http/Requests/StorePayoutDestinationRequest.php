@@ -4,28 +4,16 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class ActivateRiderRequest extends FormRequest
+class StorePayoutDestinationRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        return $this->user()?->hasRole(['seller', 'rider']) ?? false;
     }
 
     public function rules(): array
     {
         return [
-            'token' => [
-                'required',
-                'string',
-            ],
-
-            'password' => [
-                'required',
-                'string',
-                'min:8',
-                'confirmed',
-            ],
-
             'payout_method' => [
                 'required',
                 'string',

@@ -24,6 +24,7 @@ class Product extends Model
         'stock_quantity',
         'is_active',
     ];
+    
 
     protected function casts(): array
     {

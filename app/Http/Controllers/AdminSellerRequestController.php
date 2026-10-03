@@ -5,94 +5,134 @@ namespace App\Http\Controllers;
 use App\Models\SellerProfile;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
-class AdminSellerRequestController extends Controller {
+class AdminSellerRequestController extends Controller
+{
     /**
-    * Get all seller applications.
-    */
-
-    public function index( Request $request ): JsonResponse {
-        $query = SellerProfile::with( [
+     * Get all seller applications.
+     */
+    public function index(Request $request): JsonResponse
+    {
+        $query = SellerProfile::with([
             'user',
             'user.addresses',
-        ] )->latest();
+            'user.payoutDestination',
+        ])->latest();
 
-        if ( $request->filled( 'status' ) ) {
-            $query->where( 'status', $request->status );
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
         }
 
         $sellerProfiles = $query->get();
 
-        return response()->json( [
+        return response()->json([
             'success' => true,
             'data' => [
                 'seller_requests' => $sellerProfiles,
             ],
-        ] );
+        ]);
     }
 
     /**
-    * Get one seller application.
-    */
-
-    public function show( SellerProfile $sellerProfile ): JsonResponse {
-        $sellerProfile->load( [
+     * Get one seller application.
+     */
+    public function show(SellerProfile $sellerProfile): JsonResponse
+    {
+        $sellerProfile->load([
             'user',
             'user.addresses',
-        ] );
+            'user.payoutDestination',
+        ]);
 
-        return response()->json( [
+        return response()->json([
             'success' => true,
             'data' => [
                 'seller_request' => $sellerProfile,
             ],
-        ] );
+        ]);
     }
 
     /**
-    * Approve a seller application.
-    */
+     * Download a seller's private business licence document.
+     */
+    public function downloadBusinessLicense(
+        SellerProfile $sellerProfile
+    ): JsonResponse|StreamedResponse {
+        $path = $sellerProfile->business_license_path;
 
+        if (! $path || ! Storage::disk('local')->exists($path)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Business licence document not found.',
+            ], 404);
+        }
+
+        $extension = pathinfo($path, PATHINFO_EXTENSION);
+
+        return Storage::disk('local')->download(
+            $path,
+            'business-license.'.$extension
+        );
+    }
+
+    /**
+     * Approve a seller application.
+     */
     public function approve(
         SellerProfile $sellerProfile
     ): JsonResponse {
-        if ( $sellerProfile->status === 'approved' ) {
-            return response()->json( [
+        if ($sellerProfile->status === 'approved') {
+            return response()->json([
                 'success' => false,
                 'message' => 'This seller application is already approved.',
-            ], 422 );
+            ], 422);
         }
-        if ( !$sellerProfile->user->addresses()->exists() ) {
-            return response()->json( [
-                'success'=>false,
-                'message'=>'your profile cannot be approved untill a store address has been added.',
-            ], 422 );
+        if (! $sellerProfile->user->addresses()->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'your profile cannot be approved untill a store address has been added.',
+            ], 422);
         }
 
-        $sellerProfile->update( [
+        if (
+            ! $sellerProfile->nida_number ||
+            ! $sellerProfile->tin_reference ||
+            ! $sellerProfile->business_license_path ||
+            ! Storage::disk('local')->exists($sellerProfile->business_license_path) ||
+            ! $sellerProfile->user->payoutDestination()->exists()
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The seller must provide NIDA, TIN, a business licence, and a payout method before approval.',
+            ], 422);
+        }
+
+        $sellerProfile->update([
             'status' => 'approved',
             'rejection_reason' => null,
-        ] );
+        ]);
 
-        return response()->json( [
+        $sellerProfile->user->assignRole('seller');
+
+        return response()->json([
             'success' => true,
             'message' => 'Seller application approved successfully.',
             'data' => [
-                'seller_profile' => $sellerProfile->fresh()->load( 'user' ),
+                'seller_profile' => $sellerProfile->fresh()->load('user'),
             ],
-        ] );
+        ]);
     }
 
     /**
-    * Reject a seller application.
-    */
-
+     * Reject a seller application.
+     */
     public function reject(
         Request $request,
         SellerProfile $sellerProfile
     ): JsonResponse {
-        $validated = $request->validate( [
+        $validated = $request->validate([
             'rejection_reason' => [
                 'required',
                 'string',
@@ -100,32 +140,32 @@ class AdminSellerRequestController extends Controller {
                 'max:1000',
             ],
         ], [
-            'rejection_reason.required' =>
-            'Please provide a reason for rejecting this seller application.',
-            'rejection_reason.min' =>
-            'The rejection reason must be at least 5 characters.',
-            'rejection_reason.max' =>
-            'The rejection reason cannot exceed 1000 characters.',
-        ] );
+            'rejection_reason.required' => 'Please provide a reason for rejecting this seller application.',
+            'rejection_reason.min' => 'The rejection reason must be at least 5 characters.',
+            'rejection_reason.max' => 'The rejection reason cannot exceed 1000 characters.',
+        ]);
 
-        if ( $sellerProfile->status === 'approved' ) {
-            return response()->json( [
+        if ($sellerProfile->status === 'approved') {
+            return response()->json([
                 'success' => false,
                 'message' => 'An approved seller cannot be rejected.',
-            ], 422 );
+            ], 422);
         }
 
-        $sellerProfile->update( [
+        $sellerProfile->update([
             'status' => 'rejected',
-            'rejection_reason' => $validated[ 'rejection_reason' ],
-        ] );
+            'rejection_reason' => $validated['rejection_reason'],
+        ]);
 
-        return response()->json( [
+        $sellerProfile->user->removeRole('seller');
+        $sellerProfile->user->assignRole('buyer');
+
+        return response()->json([
             'success' => true,
             'message' => 'Seller application rejected.',
             'data' => [
-                'seller_profile' => $sellerProfile->fresh()->load( 'user' ),
+                'seller_profile' => $sellerProfile->fresh()->load('user'),
             ],
-        ] );
+        ]);
     }
 }

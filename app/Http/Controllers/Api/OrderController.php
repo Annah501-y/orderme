@@ -14,6 +14,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Payment;
 use App\Models\SellerOrder;
+use App\Services\AddressGeocodingService;
 use App\Services\ClickPesaService;
 use App\Services\DeliveryFeeService;
 use App\Services\RoutingService;
@@ -76,7 +77,8 @@ class OrderController extends Controller
     public function checkout(
         CheckoutOrderRequest $request,
         RoutingService $routingService,
-        DeliveryFeeService $deliveryFeeService
+        DeliveryFeeService $deliveryFeeService,
+        AddressGeocodingService $geocodingService
     ): JsonResponse {
         $user = $request->user();
 
@@ -101,13 +103,21 @@ class OrderController extends Controller
             ], 422);
         }
 
-        if (
-            $customerAddress->latitude === null ||
-            $customerAddress->longitude === null
-        ) {
+        try {
+            $hasCoordinates = $geocodingService->ensureCoordinates($customerAddress);
+        } catch (Throwable $exception) {
+            report($exception);
+
             return response()->json([
                 'success' => false,
-                'message' => 'The selected address does not have valid coordinates.',
+                'message' => 'We could not locate the delivery address right now.',
+            ], 503);
+        }
+
+        if (! $hasCoordinates) {
+            return response()->json([
+                'success' => false,
+                'message' => 'We could not find the selected delivery address. Please check it and try again.',
             ], 422);
         }
 
@@ -214,13 +224,21 @@ class OrderController extends Controller
                 ], 422);
             }
 
-            if (
-                $sellerAddress->latitude === null ||
-                $sellerAddress->longitude === null
-            ) {
+            try {
+                $sellerHasCoordinates = $geocodingService->ensureCoordinates($sellerAddress);
+            } catch (Throwable $exception) {
+                report($exception);
+
                 return response()->json([
                     'success' => false,
-                    'message' => "Seller {$sellerId} does not have valid address coordinates.",
+                    'message' => 'We could not locate the store address right now.',
+                ], 503);
+            }
+
+            if (! $sellerHasCoordinates) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "We could not find the store address for seller {$sellerId}.",
                 ], 422);
             }
 
@@ -348,7 +366,8 @@ class OrderController extends Controller
     public function calculateDeliveryFee(
         DeliveryCalculationRequest $request,
         RoutingService $routingService,
-        DeliveryFeeService $deliveryFeeService
+        DeliveryFeeService $deliveryFeeService,
+        AddressGeocodingService $geocodingService
     ): JsonResponse {
         $user = $request->user();
 
@@ -368,12 +387,19 @@ class OrderController extends Controller
             ], 403);
         }
 
-        if (
-            $customerAddress->latitude === null ||
-            $customerAddress->longitude === null
-        ) {
+        try {
+            $hasCoordinates = $geocodingService->ensureCoordinates($customerAddress);
+        } catch (Throwable $exception) {
+            report($exception);
+
             return response()->json([
-                'message' => 'Your selected address does not have valid location coordinates.',
+                'message' => 'We could not locate the delivery address right now.',
+            ], 503);
+        }
+
+        if (! $hasCoordinates) {
+            return response()->json([
+                'message' => 'We could not find the selected delivery address. Please check it and try again.',
             ], 422);
         }
 
@@ -447,12 +473,19 @@ class OrderController extends Controller
                 ], 422);
             }
 
-            if (
-                $sellerAddress->latitude === null ||
-                $sellerAddress->longitude === null
-            ) {
+            try {
+                $sellerHasCoordinates = $geocodingService->ensureCoordinates($sellerAddress);
+            } catch (Throwable $exception) {
+                report($exception);
+
                 return response()->json([
-                    'message' => "Seller {$seller->name} does not have valid location coordinates.",
+                    'message' => 'We could not locate the store address right now.',
+                ], 503);
+            }
+
+            if (! $sellerHasCoordinates) {
+                return response()->json([
+                    'message' => "We could not find the store address for {$seller->name}.",
                 ], 422);
             }
 
@@ -480,9 +513,8 @@ class OrderController extends Controller
                 report($exception);
 
                 return response()->json([
-                    'message' => $exception->getFile(),
-                    'line' => $exception->getLine(),
-                ], 500);
+                    'message' => 'Unable to calculate a driving route for one of the stores right now.',
+                ], 503);
             }
 
             $sellerSubtotal = $sellerItems->sum(

@@ -3,8 +3,8 @@
 namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Password;
 
 class RegisterRequest extends FormRequest
 {
@@ -32,9 +32,9 @@ class RegisterRequest extends FormRequest
             ],
 
             'phone' => [
-                'required',
+                'nullable',
                 'string',
-                'regex:/^\+255[67]\d{8}$/',
+                'regex:/^[67]\d{8}$/',
                 'unique:users,phone',
             ],
 
@@ -66,8 +66,7 @@ class RegisterRequest extends FormRequest
             'email.email' => 'Please enter a valid email address.',
             'email.unique' => 'This email address is already registered.',
 
-            'phone.required' => 'Please enter your Tanzanian phone number.',
-            'phone.regex' => 'The phone number must be a valid Tanzanian number starting with +255 followed by 6 or 7.', 
+            'phone.regex' => 'Enter 9 digits starting with 6 or 7.',
             'phone.unique' => 'This phone number is already registered.',
 
             'password.required' => 'Please create a password.',
