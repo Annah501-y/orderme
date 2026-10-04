@@ -31,7 +31,14 @@ class SellerProfileController extends Controller
         ];
 
         try {
-            $coordinates = $geocodingService->geocode($addressData);
+            // Use the seller's selected map point; geocode text for older API clients without coordinates.
+            $coordinates = isset($validated['latitude'], $validated['longitude'])
+                ? [
+                    'latitude' => (float) $validated['latitude'],
+                    'longitude' => (float) $validated['longitude'],
+                    'place_id' => $validated['place_id'] ?? null,
+                ]
+                : $geocodingService->geocode($addressData);
         } catch (RuntimeException $exception) {
             report($exception);
 

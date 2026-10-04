@@ -83,6 +83,7 @@ class OrderController extends Controller
         $user = $request->user();
 
         $cartItemIds = $request->input('cart_item_ids');
+        $reachablePhone = $request->validated('reachable_phone');
         $addressId = $request->input('address_id');
         $vehicleType = $request->input('vehicle_type');
 
@@ -292,6 +293,7 @@ class OrderController extends Controller
         $order = DB::transaction(function () use (
             $user,
             $addressId,
+            $reachablePhone,
             $vehicleType,
             $subtotal,
             $totalDeliveryFee,
@@ -303,6 +305,8 @@ class OrderController extends Controller
 
             $order = Order::create([
                 'user_id' => $user->id,
+                // Retain the customer's order-specific contact number for the rider.
+                'guest_phone' => $reachablePhone,
                 'address_id' => $addressId,
                 'status' => 'pending',
                 'subtotal' => $subtotal,
@@ -684,8 +688,11 @@ class OrderController extends Controller
                 'order_id' => $sellerOrder->order_id,
 
                 'customer' => [
-                    'id' => $sellerOrder->order->user->id,
-                    'name' => $sellerOrder->order->user->name,
+                    // Guest checkouts do not have a user relation; use their submitted contact name.
+                    'id' => $sellerOrder->order->user?->id,
+                    'name' => $sellerOrder->order->user?->name
+                        ?? $sellerOrder->order->guest_name
+                        ?? 'Guest customer',
                 ],
 
                 'status' => $sellerOrder->status,
@@ -852,7 +859,15 @@ class OrderController extends Controller
          * Filter by order status.
          */
         if ($request->filled('status')) {
-            $query->where('status', $request->status);
+            if ($request->status === 'ready_for_delivery') {
+                // Seller readiness belongs to each seller order, not the customer order.
+                $query->whereHas('sellerOrders', function ($sellerOrderQuery): void {
+                    $sellerOrderQuery->where('status', 'ready_for_delivery')
+                        ->whereDoesntHave('deliveries_stops');
+                });
+            } else {
+                $query->where('status', $request->status);
+            }
         }
 
         $orders = $query->paginate(20);
@@ -994,9 +1009,16 @@ class OrderController extends Controller
         ClickPesaService $clickPesa
     ): JsonResponse {
         /*
-         * Customer can only pay for their own order.
+         * Signed-in customers must own the order; guests must prove possession of its scoped token.
          */
-        if ($order->user_id !== $request->user()->id) {
+        if ($order->user_id !== null) {
+            if (! $request->user() || $order->user_id !== $request->user()->id) {
+                abort(404);
+            }
+        } elseif (! $request->input('guest_access_token') || ! hash_equals(
+            (string) $order->guest_access_token_hash,
+            hash('sha256', (string) $request->input('guest_access_token'))
+        )) {
             abort(404);
         }
 
@@ -1044,7 +1066,7 @@ class OrderController extends Controller
          */
         $payment = Payment::create([
             'order_id' => $order->id,
-            'user_id' => $request->user()->id,
+            'user_id' => $request->user()?->id,
             'provider' => 'clickpesa',
             'method' => $request->input('method'),
             'amount' => $order->total_amount,
@@ -1061,12 +1083,19 @@ class OrderController extends Controller
         $orderReference = "o{$order->id}p{$payment->id}";
 
         try {
-            $result = $clickPesa->initiateUssdPush([
+            $paymentRequest = [
                 'amount' => $order->total_amount,
                 'currency' => 'TZS',
                 'order_reference' => $orderReference,
-                'phone_number' => $request->input('phone_number'), // adjust to however the customer's number reaches this request
-            ]);
+                'phone_number' => $request->input('phone_number'),
+            ];
+
+            $clickPesa->assertPhoneProviderMatchesMethod(
+                (string) $request->input('method'),
+                $paymentRequest
+            );
+
+            $result = $clickPesa->initiateUssdPush($paymentRequest);
 
             $payment->update([
                 'status' => 'processing',

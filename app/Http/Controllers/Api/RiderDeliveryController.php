@@ -77,6 +77,21 @@ class RiderDeliveryController extends Controller
 
         $newStatus = $validated['status'];
 
+        if (
+            $newStatus === 'started'
+            && (
+                ! $rider->vehicle_type
+                || ! $rider->license_number
+                || ! $rider->license_document_path
+                || $rider->license_status !== 'approved'
+            )
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Complete your rider profile and get your licence approved before starting deliveries.',
+            ], 422);
+        }
+
         if ($newStatus === 'accepted') {
             if ($delivery->status !== 'assigned') {
                 return response()->json([

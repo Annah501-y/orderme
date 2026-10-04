@@ -23,7 +23,7 @@ class ProductResource extends JsonResource
             // Image
             'image' => $this->image,
             'image_url' => $this->image
-                ? asset('storage/' . $this->image)
+                ? asset('storage/'.$this->image)
                 : null,
 
             // Inventory
@@ -39,9 +39,16 @@ class ProductResource extends JsonResource
             }),
 
             'seller' => $this->whenLoaded('seller', function () {
+                $seller = $this->seller;
+
                 return [
-                    'id' => $this->seller->id,
-                    'name' => $this->seller->name,
+                    'id' => $seller->id,
+                    'name' => $seller->name,
+                    'store_name' => $seller->sellerProfile?->store_name,
+                    'store_description' => $seller->sellerProfile?->store_description,
+                    'profile_photo_url' => $seller->profile_photo
+                        ? asset('storage/'.$seller->profile_photo)
+                        : null,
                 ];
             }),
 

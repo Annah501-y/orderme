@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Payment;
 use App\Services\OrderFinancialService;
+use App\Services\PayoutOrchestrator;
+use App\Jobs\CheckClickPesaPayoutStatus;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -23,10 +25,21 @@ class ClickPesaWebhookController extends Controller
      */
     public function handle(
         Request $request,
-        OrderFinancialService $orderFinancialService
+        OrderFinancialService $orderFinancialService,
+        PayoutOrchestrator $payoutOrchestrator
     ): JsonResponse {
         $payload = $request->all();
         $event = strtoupper((string) ($payload['event'] ?? $payload['eventType'] ?? ''));
+
+        if (in_array($event, ['PAYOUT INITIATED', 'PAYOUT REFUNDED', 'PAYOUT REVERSED'], true)) {
+            $reference = data_get($payload, 'data.orderReference');
+            if ($reference) {
+                // The callback wakes reconciliation; only the authenticated provider query can mark a payout paid.
+                CheckClickPesaPayoutStatus::dispatch((string) $reference)->onQueue('payouts');
+                return response()->json(['status' => 'received'], 200);
+            }
+            return response()->json(['status' => 'ignored'], 200);
+        }
 
         if (! in_array($event, ['PAYMENT RECEIVED', 'PAYMENT FAILED'], true)) {
             Log::warning('ClickPesa webhook: unsupported event', $payload);
@@ -116,6 +129,12 @@ class ClickPesaWebhookController extends Controller
             );
 
             return response()->json(['status' => 'ignored'], 200);
+        }
+
+        $payment = Payment::with('order')->where('reference', $orderReference)->latest()->first();
+        if ($payment?->status === 'paid' && $payment->order) {
+            // Also covers OTP verification that happened before the customer payment cleared.
+            $payoutOrchestrator->queueEligibleForOrder($payment->order);
         }
 
         return response()->json(['status' => 'received'], 200);

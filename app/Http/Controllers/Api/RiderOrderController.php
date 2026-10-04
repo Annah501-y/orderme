@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Deliveries_stop;
 use App\Models\Delivery;
 use App\Models\Rider;
 use Illuminate\Http\JsonResponse;
@@ -50,6 +51,7 @@ class RiderOrderController extends Controller
                 'deliveries_stops.sellerOrder.seller',
                 'order.user',
                 'order.items.product.seller',
+                'order.deliveries',
             ])
             ->orderByDesc('created_at')
             ->get();
@@ -64,6 +66,13 @@ class RiderOrderController extends Controller
             $order = $delivery->order;
             $customer = $order?->user;
             $customerAddress = $order?->address;
+            $orderDeliveries = $order?->deliveries
+                ?->reject(fn (Delivery $orderDelivery): bool => $orderDelivery->status === 'cancelled')
+                ->sortBy('id')
+                ->values() ?? collect();
+            $orderDeliveryPosition = $orderDeliveries->search(
+                fn (Delivery $orderDelivery): bool => (int) $orderDelivery->id === (int) $delivery->id
+            );
 
             /*
             |--------------------------------------------------------------------------
@@ -146,6 +155,10 @@ class RiderOrderController extends Controller
                 return $stop;
             });
 
+            $customerStop = $delivery->deliveries_stops->first(function (Deliveries_stop $stop): bool {
+                return $stop->stop_type === 'delivery' && $stop->seller_order_id === null;
+            });
+
             /*
             |--------------------------------------------------------------------------
             | Add customer as the final delivery destination
@@ -158,19 +171,20 @@ class RiderOrderController extends Controller
             ] : null;
 
             $stops->push([
-                'stop_id' => null,
+                'stop_id' => $customerStop?->id,
                 'sequence' => $deliverySequence,
                 'type' => 'delivery',
-                'status' => 'pending',
+                'status' => $customerStop?->status ?? 'pending',
 
                 'seller' => null,
 
                 'seller_order' => null,
 
-                'customer' => $customer ? [
-                    'id' => $customer->id,
-                    'name' => $customer->name,
-                    'phone' => $customer->phone,
+                // Guest orders have no user record; expose their saved order contact to the rider.
+                'customer' => ($customer || $order?->guest_name) ? [
+                    'id' => $customer?->id,
+                    'name' => $customer->name ?? $order?->guest_name,
+                    'phone' => $order?->guest_phone ?? $customer?->phone ?? $customerAddress?->phone,
                 ] : null,
 
                 'location' => $customerAddress ? [
@@ -208,6 +222,8 @@ class RiderOrderController extends Controller
             return [
                 'delivery_id' => $delivery->id,
                 'order_id' => $delivery->order_id,
+                'order_delivery_number' => $orderDeliveryPosition === false ? null : $orderDeliveryPosition + 1,
+                'order_delivery_count' => $orderDeliveries->count(),
 
                 'status' => $delivery->status,
 
@@ -216,10 +232,11 @@ class RiderOrderController extends Controller
                 'started_at' => $delivery->started_at,
                 'completed_at' => $delivery->completed_at,
 
-                'customer' => $customer ? [
-                    'id' => $customer->id,
-                    'name' => $customer->name,
-                    'phone' => $customer->phone,
+                // Keep guest contact details available in the rider's order detail response.
+                'customer' => ($customer || $order?->guest_name) ? [
+                    'id' => $customer?->id,
+                    'name' => $customer->name ?? $order?->guest_name,
+                    'phone' => $order?->guest_phone ?? $customer?->phone ?? $customerAddress?->phone,
                 ] : null,
 
                 'customer_address' => $customerAddress ? [

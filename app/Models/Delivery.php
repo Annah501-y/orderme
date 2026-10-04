@@ -47,4 +47,9 @@ class Delivery extends Model
     {
         return $this->hasOne(DeliveryOtp::class);
     }
+
+    public function financial(): HasOne
+    {
+        return $this->hasOne(RiderDeliveryFinancial::class);
+    }
 }

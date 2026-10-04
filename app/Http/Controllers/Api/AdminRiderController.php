@@ -11,13 +11,83 @@ use App\Models\RiderApplication;
 use App\Models\RiderInvitation;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class AdminRiderController extends Controller
 {
+    /** Return rider profiles that need an administrator to review their licence. */
+    public function licenseSubmissions(): JsonResponse
+    {
+        $riders = Rider::query()
+            ->with('user:id,name,email,phone')
+            ->where('license_status', 'pending')
+            ->latest('updated_at')
+            ->get()
+            ->map(fn (Rider $rider) => [
+                'id' => $rider->id,
+                'user' => $rider->user,
+                'vehicle_type' => $rider->vehicle_type,
+                'license_number' => $rider->license_number,
+                'license_status' => $rider->license_status,
+                'has_license_document' => (bool) $rider->license_document_path,
+            ]);
+
+        return response()->json(['success' => true, 'data' => $riders]);
+    }
+
+    /** Send a private rider licence file to an authorized administrator for review. */
+    public function downloadLicense(Rider $rider)
+    {
+        abort_unless(
+            $rider->license_document_path && Storage::disk('local')->exists($rider->license_document_path),
+            404,
+            'The rider licence document could not be found.'
+        );
+
+        return Storage::disk('local')->download(
+            $rider->license_document_path,
+            'rider-'.$rider->id.'-license'.'.'.pathinfo($rider->license_document_path, PATHINFO_EXTENSION)
+        );
+    }
+
+    /** Approve a verified licence or return it to the rider with a review note. */
+    public function reviewLicense(Request $request, Rider $rider): JsonResponse
+    {
+        $validated = $request->validate([
+            'status' => ['required', 'in:approved,rejected'],
+            'review_note' => ['required_if:status,rejected', 'nullable', 'string', 'max:1000'],
+        ]);
+
+        if (
+            $validated['status'] === 'approved'
+            && (! $rider->vehicle_type || ! $rider->license_number || ! $rider->license_document_path)
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'A vehicle, licence number, and licence document are required before approval.',
+            ], 422);
+        }
+
+        $rider->update([
+            'license_status' => $validated['status'],
+            'license_reviewed_at' => now(),
+            'license_review_note' => $validated['review_note'] ?? null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => $validated['status'] === 'approved'
+                ? 'Rider licence approved.'
+                : 'Rider licence returned for correction.',
+            'data' => ['id' => $rider->id, 'license_status' => $rider->license_status],
+        ]);
+    }
+
     public function applications(): JsonResponse
     {
         $applications = RiderApplication::query()

@@ -72,6 +72,19 @@ class AdminDeliveryController extends Controller
                 'message' => 'Order not found',
             ], 404);
         }
+
+        $customerAddress = $order->address;
+
+        if (
+            ! $customerAddress
+            || $customerAddress->latitude === null
+            || $customerAddress->longitude === null
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The customer order needs a delivery address with GPS coordinates before rider assignment.',
+            ], 422);
+        }
         $payment = $order->payments()
             ->where('status', 'paid')
             ->latest()
@@ -182,6 +195,16 @@ class AdminDeliveryController extends Controller
         foreach ($validated['stops'] as $stop) {
 
             if (
+                $stop['stop_type'] === 'delivery'
+                && ! empty($stop['seller_order_id'])
+            ) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'The customer delivery stop cannot be linked to a seller order.',
+                ], 422);
+            }
+
+            if (
                 ! empty($stop['seller_order_id']) &&
                 ! in_array(
                     $stop['seller_order_id'],
@@ -195,13 +218,52 @@ class AdminDeliveryController extends Controller
             }
         }
 
+        $customerDestinationCount = collect($validated['stops'])
+            ->where('stop_type', 'delivery')
+            ->count();
+
+        if ($customerDestinationCount !== 1) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Include one customer destination; its saved address will be used for the delivery stop.',
+            ], 422);
+        }
+
+        $pickupSellerOrderIds = collect($validated['stops'])
+            ->where('stop_type', 'pickup')
+            ->pluck('seller_order_id')
+            ->filter()
+            ->map(fn ($sellerOrderId): int => (int) $sellerOrderId)
+            ->unique()
+            ->sort()
+            ->values();
+        $pickupStopCount = collect($validated['stops'])
+            ->where('stop_type', 'pickup')
+            ->count();
+
+        $requestedSellerOrderIds = $sellerOrders
+            ->pluck('id')
+            ->map(fn ($sellerOrderId): int => (int) $sellerOrderId)
+            ->sort()
+            ->values();
+
+        if (
+            $pickupStopCount !== $sellerOrders->count()
+            || $pickupSellerOrderIds->all() !== $requestedSellerOrderIds->all()
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Add exactly one pickup stop for each selected seller order.',
+            ], 422);
+        }
+
         /*
         |--------------------------------------------------------------------------
         | CREATE DELIVERY
         |--------------------------------------------------------------------------
         */
 
-        $delivery = DB::transaction(function () use ($validated, $rider) {
+        $delivery = DB::transaction(function () use ($validated, $rider, $customerAddress) {
 
             $delivery = Delivery::create([
                 'order_id' => $validated['order_id'],
@@ -216,7 +278,12 @@ class AdminDeliveryController extends Controller
             |--------------------------------------------------------------------------
             */
 
-            foreach ($validated['stops'] as $stop) {
+            $pickupStops = array_values(array_filter(
+                $validated['stops'],
+                fn (array $stop): bool => $stop['stop_type'] === 'pickup'
+            ));
+
+            foreach ($pickupStops as $stop) {
 
                 Deliveries_stop::create([
                     'delivery_id' => $delivery->id,
@@ -232,6 +299,25 @@ class AdminDeliveryController extends Controller
                     'status' => 'pending',
                 ]);
             }
+
+            // Derive the destination from the customer's saved address, not the admin form payload.
+            Deliveries_stop::create([
+                'delivery_id' => $delivery->id,
+                'seller_order_id' => null,
+                'is_customer_dropoff' => true,
+                'stop_type' => 'delivery',
+                'sequence' => (int) collect($pickupStops)->max('sequence') + 1,
+                'address' => collect([
+                    $customerAddress->address_line,
+                    $customerAddress->district,
+                    $customerAddress->city,
+                    $customerAddress->region,
+                    $customerAddress->country,
+                ])->filter()->implode(', '),
+                'latitude' => $customerAddress->latitude,
+                'longitude' => $customerAddress->longitude,
+                'status' => 'pending',
+            ]);
 
             /*
             |--------------------------------------------------------------------------

@@ -2,8 +2,8 @@
 
 namespace App\Services;
 
-use App\Models\Delivery;
 use App\Models\Deliveries_stop;
+use App\Models\Delivery;
 use App\Models\Order;
 use App\Models\Rider;
 use App\Models\SellerOrder;
@@ -28,11 +28,25 @@ class DeliveryAssignmentService
      */
     public function assign(int $orderId): array
     {
-        if (! Order::query()->whereKey($orderId)->exists()) {
+        $order = Order::query()->with('address')->find($orderId);
+
+        if (! $order) {
             throw new RuntimeException('Order not found.');
         }
 
-        return DB::transaction(function () use ($orderId): array {
+        $customerAddress = $order->address;
+
+        if (
+            ! $customerAddress
+            || $customerAddress->latitude === null
+            || $customerAddress->longitude === null
+        ) {
+            throw new RuntimeException(
+                'The customer order needs a delivery address with GPS coordinates before rider assignment.'
+            );
+        }
+
+        return DB::transaction(function () use ($orderId, $customerAddress): array {
             $sellerOrders = SellerOrder::query()
                 ->with([
                     'seller.addresses' => function ($query): void {
@@ -113,6 +127,19 @@ class DeliveryAssignmentService
                     $sellerOrder->update(['status' => 'assigned_to_rider']);
                 }
 
+                // Each rider group gets its own customer stop and delivery OTP, even when several riders share one order.
+                Deliveries_stop::create([
+                    'delivery_id' => $delivery->id,
+                    'seller_order_id' => null,
+                    'is_customer_dropoff' => true,
+                    'stop_type' => 'delivery',
+                    'sequence' => count($assignmentGroup['seller_orders']) + 1,
+                    'address' => $this->formatAddress($customerAddress),
+                    'latitude' => $customerAddress->latitude,
+                    'longitude' => $customerAddress->longitude,
+                    'status' => 'pending',
+                ]);
+
                 $deliveries[] = $delivery->load([
                     'rider.user',
                     'deliveries_stops.sellerOrder.seller',
@@ -124,7 +151,7 @@ class DeliveryAssignmentService
     }
 
     /**
-     * @param Collection<int, SellerOrder> $sellerOrders
+     * @param  Collection<int, SellerOrder>  $sellerOrders
      * @return Collection<int, array<int, array{seller_order: SellerOrder, address: mixed}>>
      */
     private function groupNearbySellerOrders(Collection $sellerOrders): Collection
@@ -176,8 +203,8 @@ class DeliveryAssignmentService
     }
 
     /**
-     * @param array<int, array{seller_order: SellerOrder, address: mixed}> $pickupGroup
-     * @param array<int, int> $excludedRiderIds
+     * @param  array<int, array{seller_order: SellerOrder, address: mixed}>  $pickupGroup
+     * @param  array<int, int>  $excludedRiderIds
      */
     private function findNearbyAvailableRider(
         array $pickupGroup,

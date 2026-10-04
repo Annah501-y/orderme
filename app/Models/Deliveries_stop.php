@@ -10,6 +10,7 @@ class Deliveries_stop extends Model
     protected $fillable = [
         'delivery_id',
         'seller_order_id',
+        'is_customer_dropoff',
         'stop_type',
         'sequence',
         'address',
@@ -17,19 +18,23 @@ class Deliveries_stop extends Model
         'longitude',
         'status',
         'arrived_at',
-        'completed_at'
+        'completed_at',
     ];
+
     protected $casts = [
         'latitude' => 'decimal:7',
         'longitude' => 'decimal:7',
-        'arrived_at'=> 'datetime',
+        'arrived_at' => 'datetime',
         'completed_at' => 'datetime',
         'sequence' => 'integer',
+        'is_customer_dropoff' => 'boolean',
     ];
-    public function delivery():BelongsTo
+
+    public function delivery(): BelongsTo
     {
         return $this->belongsTo(Delivery::class);
     }
+
     public function sellerOrder(): BelongsTo
     {
         return $this->belongsTo(SellerOrder::class);

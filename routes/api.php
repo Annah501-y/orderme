@@ -4,6 +4,7 @@ use App\Http\Controllers\AdminDashboardController;
 use App\Http\Controllers\AdminSellerRequestController;
 use App\Http\Controllers\Api\AddressController;
 use App\Http\Controllers\Api\AdminDeliveryController;
+use App\Http\Controllers\Api\AdminPaymentController;
 use App\Http\Controllers\Api\AdminProductController;
 use App\Http\Controllers\Api\AdminRiderController;
 use App\Http\Controllers\Api\AdminSettingsController;
@@ -14,7 +15,9 @@ use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\ClickPesaWebhookController;
 use App\Http\Controllers\Api\CustomerFeedbackController;
 use App\Http\Controllers\Api\DeliveryAssignmentController;
+use App\Http\Controllers\Api\EarningsController;
 use App\Http\Controllers\Api\GoogleAuthController;
+use App\Http\Controllers\Api\GuestCheckoutController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\PayoutDestinationController;
 use App\Http\Controllers\Api\ProductController;
@@ -25,6 +28,7 @@ use App\Http\Controllers\Api\RiderDeliveryOtpController;
 use App\Http\Controllers\Api\RiderDeliveryStopController;
 use App\Http\Controllers\Api\RiderLocationController;
 use App\Http\Controllers\Api\RiderOrderController;
+use App\Http\Controllers\Api\RiderProfileController;
 use App\Http\Controllers\Api\WishlistController;
 use App\Http\Controllers\SellerProfileController;
 use Illuminate\Support\Facades\Route;
@@ -81,6 +85,15 @@ Route::get('/products', [ProductController::class, 'index']);
 Route::get('/products/{product}', [ProductController::class, 'show']);
 Route::get('/deals', [ProductController::class, 'deals']);
 
+// Rate-limit public quote and order endpoints that use geocoding or create persistent records.
+Route::post('/guest/orders/calculate-delivery', [GuestCheckoutController::class, 'calculate'])
+    ->middleware('throttle:20,1');
+Route::post('/guest/orders/checkout', [GuestCheckoutController::class, 'store'])
+    ->middleware('throttle:10,1');
+Route::post('/guest/orders/{order}/payment', [OrderController::class, 'payment'])
+    ->middleware('throttle:10,1')
+    ->name('guest.orders.payment');
+
 /*
 |--------------------------------------------------------------------------
 | Authenticated Routes
@@ -132,6 +145,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/admin/riders', [AdminRiderController::class, 'store'])
             ->middleware('permission:riders.create')
             ->name('admin.riders.store');
+        Route::get('/admin/rider-licenses', [AdminRiderController::class, 'licenseSubmissions'])
+            ->middleware('permission:riders.view')
+            ->name('admin.rider-licenses.index');
+        Route::get('/admin/riders/{rider}/license-document', [AdminRiderController::class, 'downloadLicense'])
+            ->middleware('permission:riders.view')
+            ->name('admin.riders.license-document');
+        Route::patch('/admin/riders/{rider}/license-review', [AdminRiderController::class, 'reviewLicense'])
+            ->middleware('permission:riders.update')
+            ->name('admin.riders.license-review');
         Route::get('/admin/rider-applications', [AdminRiderController::class, 'applications'])
             ->middleware('permission:riders.view')
             ->name('admin.rider-applications.index');
@@ -145,6 +167,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/admin/deliveries', [AdminDeliveryController::class, 'index'])
             ->middleware('permission:deliveries.assign')
             ->name('admin.deliveries.index');
+        Route::get('/admin/payments', [AdminPaymentController::class, 'index'])
+            ->middleware('permission:payments.view')
+            ->name('admin.payments.index');
         Route::post('/admin/deliveries', [AdminDeliveryController::class, 'store'])
             ->middleware('permission:deliveries.assign')
             ->name('admin.deliveries.store');
@@ -167,25 +192,25 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/admin/settings/logout-all', [AdminSettingsController::class, 'logoutAll'])
             ->middleware('permission:users.update')
             ->name('admin.settings.logout-all');
-            Route::get(
-                '/admin/reviews',
-                [CustomerFeedbackController::class, 'reviewsForModeration']
-            );
-            
-            Route::patch(
-                '/admin/reviews/{review}',
-                [CustomerFeedbackController::class, 'updateReviewStatus']
-            );
-            
-            Route::get(
-                '/admin/feedback/comments',
-                [CustomerFeedbackController::class, 'commentsForModeration']
-            );
-            
-            Route::patch(
-                '/admin/feedback/comments/{feedbackComment}',
-                [CustomerFeedbackController::class, 'updateCommentStatus']
-            );
+        Route::get(
+            '/admin/reviews',
+            [CustomerFeedbackController::class, 'reviewsForModeration']
+        );
+
+        Route::patch(
+            '/admin/reviews/{review}',
+            [CustomerFeedbackController::class, 'updateReviewStatus']
+        );
+
+        Route::get(
+            '/admin/feedback/comments',
+            [CustomerFeedbackController::class, 'commentsForModeration']
+        );
+
+        Route::patch(
+            '/admin/feedback/comments/{feedbackComment}',
+            [CustomerFeedbackController::class, 'updateCommentStatus']
+        );
 
     });
 
@@ -309,7 +334,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::patch(
         '/products/{product}/stock',
         [ProductController::class, 'updateStock']
-    )->middleware(['permission:products.manage_stock', 'seller.approved']);
+    )->middleware(['permission:products.manage-stock', 'seller.approved']);
 
     /*
     |--------------------------------------------------------------------------
@@ -347,6 +372,10 @@ Route::middleware('auth:sanctum')->group(function () {
     | Customer Orders
     |--------------------------------------------------------------------------
     */
+
+    Route::post('/guest/orders/{order}/claim', [GuestCheckoutController::class, 'claim'])
+        ->middleware('throttle:10,1')
+        ->name('guest.orders.claim');
 
     // Create order from cart
     // Route::POST(
@@ -515,6 +544,17 @@ Route::middleware('auth:sanctum')->group(function () {
         ->middleware('permission:deliveries.view')
         ->name('riders.orders.index');
 
+    Route::get('/earnings', [EarningsController::class, 'index'])
+        ->middleware('role:seller|rider')
+        ->name('earnings.index');
+
+    // Rider licence documents are served through authenticated routes, never public storage URLs.
+    Route::get('/rider/profile', [RiderProfileController::class, 'show'])
+        ->name('rider.profile.show');
+    Route::put('/rider/profile', [RiderProfileController::class, 'update'])
+        ->middleware('permission:deliveries.update')
+        ->name('rider.profile.update');
+
     Route::put('/rider/location', [RiderLocationController::class, 'update'])
         ->middleware('permission:deliveries.update')
         ->name('rider.location.update');
@@ -539,15 +579,19 @@ Route::middleware('auth:sanctum')->group(function () {
         ->name('rider.delivery-stops.update');
     Route::post('/rider/deliveries/{delivery}/otp', [RiderDeliveryOtpController::class, 'generate'])
         ->middleware('permission:deliveries.update')
+        ->middleware('throttle:3,1')
         ->name('rider.deliveries.otp.generate');
 
     Route::post('/rider/deliveries/{delivery}/otp/verify', [RiderDeliveryOtpController::class, 'verify'])
         ->middleware('permission:deliveries.update')
+        ->middleware('throttle:6,1')
         ->name('rider.deliveries.otp.verify');
 
     Route::put(
         '/payout-destination', [PayoutDestinationController::class, 'store']
     )->name('payout-destination.update');
+    Route::get('/payout-destination', [PayoutDestinationController::class, 'show'])
+        ->name('payout-destination.show');
 
     Route::post(
         '/payout-destination/verification/send', [PayoutDestinationController::class, 'sendVerification']
@@ -561,7 +605,7 @@ Route::middleware('auth:sanctum')->group(function () {
         '/reviews',
         [CustomerFeedbackController::class, 'storeReview']
     );
-    
+
     Route::post(
         '/feedback/comments',
         [CustomerFeedbackController::class, 'storeComment']
@@ -573,12 +617,12 @@ Route::post('/webhooks/clickpesa', [ClickPesaWebhookController::class, 'handle']
 
 Route::post('/rider/activate', [AdminRiderController::class, 'activate'])
     ->name('rider.activate');
-    Route::get(
-        '/products/{product}/reviews',
-        [CustomerFeedbackController::class, 'approvedReviews']
-    );
-    
-    Route::get(
-        '/faqs/{faqId}/comments',
-        [CustomerFeedbackController::class, 'approvedFaqComments']
-    );
+Route::get(
+    '/products/{product}/reviews',
+    [CustomerFeedbackController::class, 'approvedReviews']
+);
+
+Route::get(
+    '/faqs/{faqId}/comments',
+    [CustomerFeedbackController::class, 'approvedFaqComments']
+);

@@ -10,7 +10,7 @@ class UpdateProductStockRequest extends FormRequest
     {
         $product = $this->route('product');
 
-        return $this->user()?->can('products.manage_stock')
+        return $this->user()?->can('products.manage-stock')
             && (
                 $this->user()->hasRole('admin')
                 || $product->seller_id === $this->user()->id

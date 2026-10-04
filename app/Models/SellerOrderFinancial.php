@@ -15,6 +15,8 @@ class SellerOrderFinancial extends Model
         'seller_payout_amount',
         'payout_status',
         'provider_reference',
+        'provider_transaction_id',
+        'payout_attempts',
         'paid_at',
         'failure_reason',
     ];
@@ -25,6 +27,7 @@ class SellerOrderFinancial extends Model
         'commission_amount' => 'decimal:2',
         'seller_payout_amount' => 'decimal:2',
         'paid_at' => 'datetime',
+        'payout_attempts' => 'integer',
     ];
 
     public function sellerOrder(): BelongsTo

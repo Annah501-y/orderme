@@ -26,10 +26,18 @@ class CheckoutOrderRequest extends FormRequest
                 'exists:cart_items,id',
             ],
 
-            'address_id'=>[
+            'address_id' => [
                 'required',
                 'integer',
                 'Exists:addresses,id',
+            ],
+
+            // Save the number the rider should use for this specific delivery.
+            'reachable_phone' => [
+                'required',
+                'string',
+                'max:20',
+                'regex:/^(?:\+?255|0)[0-9]{9}$/',
             ],
 
             'vehicle_type' => [
@@ -43,21 +51,17 @@ class CheckoutOrderRequest extends FormRequest
     public function messages(): array
     {
         return [
-            'cart_item_ids.required' =>
-                'Please select at least one item to checkout.',
+            'cart_item_ids.required' => 'Please select at least one item to checkout.',
 
-            'cart_item_ids.array' =>
-                'Invalid checkout items.',
+            'cart_item_ids.array' => 'Invalid checkout items.',
 
-            'cart_item_ids.min' =>
-                'Please select at least one item to checkout.',
+            'cart_item_ids.min' => 'Please select at least one item to checkout.',
 
-            'cart_item_ids.*.exists' =>
-                'One of the selected cart items no longer exists.',
-            'address_id' =>
-            'please select a delivery address.',
-            'vehicle_type.in' =>
-            'please select either Bodaboda or Bajaji.',
+            'cart_item_ids.*.exists' => 'One of the selected cart items no longer exists.',
+            'address_id' => 'please select a delivery address.',
+            'reachable_phone.required' => 'Please enter a reachable phone number for delivery.',
+            'reachable_phone.regex' => 'Enter a valid Tanzania phone number, such as +255 7XX XXX XXX.',
+            'vehicle_type.in' => 'please select either Bodaboda or Bajaji.',
         ];
     }
 }

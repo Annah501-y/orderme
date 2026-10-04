@@ -86,11 +86,73 @@ class ClickPesaService
                 'currency' => $data['currency'] ?? 'TZS',
                 'orderReference' => $orderReference,
                 'phoneNumber' => self::normalizePhoneNumber($data['phone_number']),
+                'fetchSenderDetails' => true,
             ]);
 
         $this->throwIfFailed($response, 'preview USSD push');
 
         return $response->json();
+    }
+
+    /**
+     * Confirm that the selected wallet matches the carrier registered to the phone.
+     * ClickPesa's preview response supplies the carrier without charging the customer.
+     */
+    public function assertPhoneProviderMatchesMethod(string $method, array $data): void
+    {
+        $preview = $this->previewUssdPush($data);
+        $provider = strtoupper((string) data_get($preview, 'sender.accountProvider', ''));
+        $normalizedProvider = preg_replace('/[^A-Z0-9]/', '', $provider);
+
+        if ($normalizedProvider === '') {
+            throw new ClickPesaException(
+                'We could not verify the mobile money provider for this phone number. Check the number and try again.'
+            );
+        }
+
+        $methodLabels = [
+            'mpesa' => 'M-Pesa',
+            'airtel_money' => 'Airtel Money',
+            'yas' => 'Mixx by Yas',
+            'halopesa' => 'HaloPesa',
+        ];
+        $methodAliases = [
+            'mpesa' => ['VODACOM', 'MPESA'],
+            'airtel_money' => ['AIRTEL'],
+            'yas' => ['TIGO', 'YAS', 'MIXX'],
+            'halopesa' => ['HALOTEL', 'HALOPESA', 'HALO'],
+        ];
+        $providerLabels = [
+            'VODACOM' => 'M-Pesa',
+            'MPESA' => 'M-Pesa',
+            'AIRTEL' => 'Airtel Money',
+            'TIGO' => 'Mixx by Yas',
+            'YAS' => 'Mixx by Yas',
+            'MIXX' => 'Mixx by Yas',
+            'HALOTEL' => 'HaloPesa',
+            'HALOPESA' => 'HaloPesa',
+            'HALO' => 'HaloPesa',
+        ];
+
+        $expectedLabel = $methodLabels[$method] ?? 'the selected payment method';
+        foreach ($methodAliases[$method] ?? [] as $alias) {
+            if (str_contains($normalizedProvider, $alias)) {
+                return;
+            }
+        }
+
+        $actualLabel = 'the mobile money service ' . $provider;
+        foreach ($providerLabels as $alias => $label) {
+            if (str_contains($normalizedProvider, $alias)) {
+                $actualLabel = $label;
+                break;
+            }
+        }
+
+        throw new ClickPesaException(
+            "This phone number is registered with {$actualLabel}, but {$expectedLabel} was selected. " .
+            "Select {$actualLabel} or enter a phone number registered with {$expectedLabel}."
+        );
     }
 
     /**
@@ -130,6 +192,88 @@ class ClickPesaService
             ->get("{$this->baseUrl}/third-parties/payments/{$orderReference}");
 
         $this->throwIfFailed($response, 'query payment status');
+
+        return $response->json();
+    }
+
+    /** Preview recipient details and fees before creating a mobile-money payout. */
+    public function previewMobilePayout(array $data): array
+    {
+        $response = $this->authorizedRequest()->post(
+            "{$this->baseUrl}/third-parties/payouts/preview-mobile-money-payout",
+            [
+                'amount' => (string) $data['amount'],
+                'currency' => $data['currency'] ?? 'TZS',
+                'orderReference' => $data['order_reference'],
+                'phoneNumber' => self::normalizePhoneNumber($data['phone_number']),
+            ]
+        );
+        $this->throwIfFailed($response, 'preview mobile-money payout');
+
+        return $response->json();
+    }
+
+    /** Preview a bank recipient before creating the payout. */
+    public function previewBankPayout(array $data): array
+    {
+        $response = $this->authorizedRequest()->post(
+            "{$this->baseUrl}/third-parties/payouts/preview-bank-payout",
+            [
+                'amount' => (string) $data['amount'],
+                'accountNumber' => $data['account_number'],
+                'orderReference' => $data['order_reference'],
+                'bic' => $data['bic'],
+                'accountCurrency' => $data['currency'] ?? 'TZS',
+            ]
+        );
+        $this->throwIfFailed($response, 'preview bank payout');
+
+        return $response->json();
+    }
+
+    /** Submit one idempotently referenced mobile-money transfer. */
+    public function createMobilePayout(array $data): array
+    {
+        $response = $this->authorizedRequest()->post(
+            "{$this->baseUrl}/third-parties/payouts/create-mobile-money-payout",
+            [
+                'amount' => (string) $data['amount'],
+                'currency' => $data['currency'] ?? 'TZS',
+                'orderReference' => $data['order_reference'],
+                'phoneNumber' => self::normalizePhoneNumber($data['phone_number']),
+            ]
+        );
+        $this->throwIfFailed($response, 'create mobile-money payout');
+
+        return $response->json();
+    }
+
+    /** Submit one idempotently referenced bank transfer. */
+    public function createBankPayout(array $data): array
+    {
+        $response = $this->authorizedRequest()->post(
+            "{$this->baseUrl}/third-parties/payouts/create-bank-payout",
+            [
+                'amount' => (string) $data['amount'],
+                'accountNumber' => $data['account_number'],
+                'accountName' => $data['account_name'],
+                'orderReference' => $data['order_reference'],
+                'bic' => $data['bic'],
+                'accountCurrency' => $data['currency'] ?? 'TZS',
+            ]
+        );
+        $this->throwIfFailed($response, 'create bank payout');
+
+        return $response->json();
+    }
+
+    /** Query ClickPesa's authenticated payout status for webhook reconciliation. */
+    public function queryPayoutStatus(string $orderReference): array
+    {
+        $response = $this->authorizedRequest()->get(
+            "{$this->baseUrl}/third-parties/payouts/".rawurlencode($orderReference)
+        );
+        $this->throwIfFailed($response, 'query payout status');
 
         return $response->json();
     }

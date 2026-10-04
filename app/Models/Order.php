@@ -11,6 +11,9 @@ class Order extends Model
 {
     protected $fillable = [
         'user_id',
+        'guest_name',
+        'guest_phone',
+        'guest_access_token_hash',
         'address_id',
         'status',
         'subtotal',
@@ -22,6 +25,11 @@ class Order extends Model
 
     protected $casts = [
         'total_amount' => 'decimal:2',
+    ];
+
+    protected $hidden = [
+        // Keep the stored guest credential hash out of every serialized order response.
+        'guest_access_token_hash',
     ];
 
     public function user(): BelongsTo

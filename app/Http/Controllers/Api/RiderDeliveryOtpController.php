@@ -8,14 +8,19 @@ use App\Http\Requests\VerifyDeliveryOtpRequest;
 use App\Models\Delivery;
 use App\Models\DeliveryOtp;
 use App\Models\Rider;
+use App\Services\BeemSmsService;
+use App\Services\PayoutOrchestrator;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 
 class RiderDeliveryOtpController extends Controller
 {
     public function generate(
         GenerateDeliveryOtpRequest $request,
-        Delivery $delivery
+        Delivery $delivery,
+        BeemSmsService $sms
     ): JsonResponse {
         $user = $request->user();
 
@@ -88,6 +93,35 @@ class RiderDeliveryOtpController extends Controller
 
         /*
         |--------------------------------------------------------------------------
+        | Confirm every seller pickup is complete before customer verification
+        |--------------------------------------------------------------------------
+        */
+        $unfinishedPickupExists = $delivery->deliveries_stops()
+            ->where('stop_type', 'pickup')
+            ->where('status', '!=', 'completed')
+            ->exists();
+
+        if ($unfinishedPickupExists) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Complete every seller pickup before requesting the customer delivery OTP.',
+            ], 422);
+        }
+
+        $order = $delivery->order;
+        $customerPhone = $order?->guest_phone
+            ?? $order?->user?->phone
+            ?? $order?->address?->phone;
+
+        if (! $customerPhone) {
+            return response()->json([
+                'success' => false,
+                'message' => 'A reachable customer phone number is required to send the delivery OTP.',
+            ], 422);
+        }
+
+        /*
+        |--------------------------------------------------------------------------
         | Check for an existing valid OTP
         |--------------------------------------------------------------------------
         */
@@ -100,9 +134,15 @@ class RiderDeliveryOtpController extends Controller
             $existingOtp->attempts < $existingOtp->max_attempts
         ) {
             return response()->json([
-                'success' => false,
-                'message' => 'An active OTP already exists for this delivery.',
-            ], 422);
+                'success' => true,
+                'message' => 'A valid code has already been sent. Ask the customer to share that code.',
+                'data' => [
+                    'delivery_id' => $delivery->id,
+                    'expires_at' => $existingOtp->expires_at,
+                    'expires_in_minutes' => max(1, now()->diffInMinutes($existingOtp->expires_at)),
+                    'already_sent' => true,
+                ],
+            ]);
         }
 
         /*
@@ -130,28 +170,32 @@ class RiderDeliveryOtpController extends Controller
             ]
         );
 
-        /*
-        |--------------------------------------------------------------------------
-        | SMS sending will be added separately
-        |--------------------------------------------------------------------------
-        */
+        /* Send the verification code to the customer without exposing it to the rider. */
+        try {
+            $sms->send(
+                $customerPhone,
+                "Your OrderMe verification code for order #{$delivery->order_id}, delivery #{$delivery->id}, is {$otp}. Share it with your rider after receiving this delivery. It expires in 10 minutes."
+            );
+        } catch (\Throwable $exception) {
+            $deliveryOtp->delete();
+            Log::warning('Customer delivery verification SMS could not be sent.', [
+                'delivery_id' => $delivery->id,
+                'exception' => $exception::class,
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Could not send the customer delivery code. Please try again later.',
+            ], 503);
+        }
+
         return response()->json([
             'success' => true,
-            'message' => 'Delivery OTP generated successfully.',
+            'message' => 'Delivery verification code sent to the customer.',
             'data' => [
                 'delivery_id' => $delivery->id,
                 'expires_at' => $deliveryOtp->expires_at,
                 'expires_in_minutes' => 10,
-
-                /*
-                |--------------------------------------------------------------------------
-                | Temporary testing value
-                |--------------------------------------------------------------------------
-                |
-                | Remove this field when the SMS provider is connected.
-                |
-                */
-                'otp' => $otp,
             ],
         ], 201);
     }
@@ -161,7 +205,8 @@ class RiderDeliveryOtpController extends Controller
      */
     public function verify(
         VerifyDeliveryOtpRequest $request,
-        Delivery $delivery
+        Delivery $delivery,
+        PayoutOrchestrator $payoutOrchestrator
     ): JsonResponse {
         $user = $request->user();
 
@@ -340,6 +385,46 @@ class RiderDeliveryOtpController extends Controller
                 'status' => 'completed',
                 'completed_at' => now(),
             ]);
+
+            // Release each seller's order as soon as its assigned rider completes that delivery.
+            $sellerOrders = $delivery->deliveries_stops()
+                ->whereNotNull('seller_order_id')
+                ->with('sellerOrder')
+                ->get()
+                ->pluck('sellerOrder')
+                ->filter()
+                ->unique('id');
+
+            foreach ($sellerOrders as $sellerOrder) {
+                if ($sellerOrder->status !== 'cancelled') {
+                    $sellerOrder->update(['status' => 'delivered']);
+                }
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Mark the parent order complete when all assigned deliveries are done
+            |--------------------------------------------------------------------------
+            */
+            $order = $delivery->order;
+            $unfinishedDeliveryExists = $order?->deliveries()
+                ->where(function (Builder $query): void {
+                    $query->where('status', '!=', 'completed')
+                        ->orWhereNull('completed_at');
+                })
+                ->exists();
+            $unfinishedSellerOrderExists = $order?->sellerOrders()
+                ->whereNotIn('status', ['delivered', 'cancelled'])
+                ->exists();
+
+            if ($order && ! $unfinishedDeliveryExists && ! $unfinishedSellerOrderExists) {
+                $order->update(['status' => 'delivered']);
+            }
+        }
+
+        // Queue a payout only after this delivery is complete and its OTP was verified.
+        if ($delivery->status === 'completed' && $delivery->completed_at) {
+            $payoutOrchestrator->queueEligibleForDelivery($delivery->fresh());
         }
 
         $delivery->refresh();
@@ -347,7 +432,7 @@ class RiderDeliveryOtpController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'OTP verified successfully and delivery completed.',
+            'message' => 'Customer OTP verified successfully and this rider delivery is complete.',
             'data' => [
                 'delivery_id' => $delivery->id,
                 'otp_verified_at' => $deliveryOtp->verified_at,

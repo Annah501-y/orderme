@@ -14,12 +14,19 @@ class Rider extends Model
         'longitude',
         'is_available',
         'status',
+        'vehicle_type',
+        'license_number',
+        'license_document_path',
+        'license_status',
+        'license_reviewed_at',
+        'license_review_note',
     ];
 
     protected $casts = [
         'latitude' => 'decimal:7',
         'longitude' => 'decimal:7',
         'is_available' => 'boolean',
+        'license_reviewed_at' => 'datetime',
     ];
 
     public function user(): BelongsTo

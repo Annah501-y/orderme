@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StorePayoutDestinationRequest;
 use App\Services\BeemSmsService;
+use App\Services\PayoutOrchestrator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -12,7 +13,37 @@ use Illuminate\Support\Facades\Hash;
 
 class PayoutDestinationController extends Controller
 {
-    public function store(StorePayoutDestinationRequest $request): JsonResponse
+    /** Return the signed-in seller or rider's own payout settings. */
+    public function show(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        if (! $user->hasRole(['seller', 'rider'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only sellers and riders can access payout settings.',
+            ], 403);
+        }
+
+        $destination = $user->payoutDestination;
+
+        return response()->json([
+            'success' => true,
+            'data' => $destination ? [
+                'payout_method' => $destination->payout_method,
+                'mobile_phone' => $destination->mobile_phone,
+                'bank_bic' => $destination->bank_bic,
+                'bank_account_number' => $destination->bank_account_number,
+                'bank_account_name' => $destination->bank_account_name,
+                'verified_at' => $destination->verified_at,
+            ] : null,
+        ]);
+    }
+
+    public function store(
+        StorePayoutDestinationRequest $request,
+        PayoutOrchestrator $payoutOrchestrator
+    ): JsonResponse
     {
         $user = $request->user();
         $validated = $request->validated();
@@ -33,6 +64,12 @@ class PayoutDestinationController extends Controller
         $destination->verification_expires_at = null;
         $destination->verification_attempts = 0;
         $destination->save();
+
+        // Bank recipients are validated by ClickPesa's name lookup at payout time.
+        // Saving a bank account can therefore release completed earnings immediately.
+        if ($destination->payout_method === 'bank') {
+            $payoutOrchestrator->queueEligibleForUser($user);
+        }
 
         return response()->json([
             'success' => true,
@@ -110,7 +147,8 @@ class PayoutDestinationController extends Controller
     }
 
     public function verify(
-        Request $request
+        Request $request,
+        PayoutOrchestrator $payoutOrchestrator
     ): JsonResponse {
         $validated = $request->validate([
             'code' => ['required', 'digits:6'],
@@ -164,6 +202,10 @@ class PayoutDestinationController extends Controller
 
             return ['status' => 'verified'];
         });
+
+        if ($result['status'] === 'verified') {
+            $payoutOrchestrator->queueEligibleForUser($user);
+        }
 
         return match ($result['status']) {
             'verified' => response()->json([

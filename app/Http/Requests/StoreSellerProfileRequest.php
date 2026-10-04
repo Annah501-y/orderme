@@ -115,6 +115,24 @@ class StoreSellerProfileRequest extends FormRequest
                 'string',
                 'max:100',
             ],
+
+            'latitude' => [
+                'nullable',
+                'numeric',
+                'between:-90,90',
+            ],
+
+            'longitude' => [
+                'nullable',
+                'numeric',
+                'between:-180,180',
+            ],
+
+            'place_id' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
         ];
     }
 
